@@ -1,4 +1,4 @@
-# Hand control training (v0.12)
+# Hand control training (v0.13)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -11,7 +11,7 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 3. **Pinch:** open hand, then a firm pinch, three times, to set your own pinch threshold.
 4. **Hold still:** three seconds on a dot, to measure how much the cursor wobbles and set the smoothing.
 5. **Targets:** eight buttons to pinch, to measure overshoots, misses and time, which set how strongly buttons pull the cursor in.
-6. After each step it asks two questions on a 1–7 scale, how well it worked and how much effort it took; you pinch a number and confirm it, or let it carry on by itself from what it measured.
+6. After each step it asks one question: overall, how easy was that, from 1 (very hard, a lot of effort) to 7 (easy, no effort). You pinch a number and confirm it, or let it carry on by itself from what it measured.
 
 The profile (a few numbers) is saved in your browser. The atlas, which lives on the same site, picks it up the next time you start hand control, and its 🎯 Adaptive aim keeps fine-tuning it as you go. You can also download the profile as a file and open it in the atlas with "Open a planet pack".
 

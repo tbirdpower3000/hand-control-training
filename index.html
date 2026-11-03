@@ -591,7 +591,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.12, 3 Nov 2026">v0.12</div>
+<div id="ver" title="Hand control training, version 0.13, 3 Nov 2026">v0.13</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -600,7 +600,7 @@
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
   <p id="askQ"></p>
   <div id="scale" role="group" aria-label="Rate it from 1 to 7"></div>
-  <div class="ends"><span id="endLo">1 · not at all</span><span id="endHi">7 · perfectly</span></div>
+  <div class="ends"><span id="endLo">1 · very hard, a lot of effort</span><span id="endHi">7 · easy, no effort</span></div>
   <div id="askTimer" aria-hidden="true"><i></i></div>
   <div id="confirm" hidden>
     <p id="confirmQ"></p>
@@ -610,7 +610,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.12 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.13 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1254,10 +1254,10 @@
 
     // ---- after each step: rate it 1–7 (pinch or click a number), or say nothing and it carries on from what it measured
     const QUESTIONS = {
-      reach: 'Could the cursor reach all four circles comfortably?',
-      pinch: 'Did the ring fill when you pinched and empty when you opened your hand?',
-      still: 'Does the cursor feel smooth and keep up with your hand?',
-      aim: 'How easy were the buttons to hit?',
+      reach: 'Overall, how easy was reaching the four corners?',
+      pinch: 'Overall, how easy was pinching (did the ring fill and empty when you wanted)?',
+      still: 'Overall, how easy was keeping the cursor still?',
+      aim: 'Overall, how easy were the buttons to hit?',
     };
     const NEXT = { reach: startPinch, pinch: startStill, still: startAim, aim: finish };
     let asking = null,
@@ -1289,8 +1289,8 @@
     function setPhase(p) {
       phase = p;
       $('askQ').textContent = p === 'quality' ? QUESTIONS[asking] : EFFORT_Q[asking];
-      $('endLo').textContent = p === 'quality' ? '1 · not at all' : '1 · no effort';
-      $('endHi').textContent = p === 'quality' ? '7 · perfectly' : '7 · a lot of effort';
+      $('endLo').textContent = '1 · very hard, a lot of effort';
+      $('endHi').textContent = '7 · easy, no effort';
       unpick();
       askT0 = performance.now();
       askPinch = true;
@@ -1359,7 +1359,7 @@
     $('scale').innerHTML = [1, 2, 3, 4, 5, 6, 7].map((n) => `<button type="button" data-n="${n}" aria-label="${n} of 7">${n}</button>`).join('');
     // picking a number asks you to confirm it, so a stray pinch can't choose for you
     let picked = null;
-    const WORDS = { 1: 'not at all', 2: 'badly', 3: 'not very well', 4: 'OK', 5: 'well', 6: 'very well', 7: 'perfectly' },
+    const WORDS = { 1: 'very hard', 2: 'hard', 3: 'quite hard', 4: 'OK', 5: 'quite easy', 6: 'easy', 7: 'effortless' },
       EFFORT_WORDS = { 1: 'no effort', 2: 'very little', 3: 'a little', 4: 'some', 5: 'quite a lot', 6: 'a lot', 7: 'a great deal' };
     function pickRating(n) {
       if (!asking) return;
@@ -1389,11 +1389,7 @@
       const n = picked;
       unpick();
       if (!n) return;
-      if (phase === 'quality') {
-        qualityN = n;
-        SND.got();
-        setPhase('effort');
-      } else answer(qualityN, n);
+      answer(n);
     };
     $('confirmNo').onclick = () => unpick();
     // pinching a number with the hand cursor presses it
@@ -1488,7 +1484,7 @@
         rows.push(['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${m.open != null ? ` (open ${m.open.toFixed(2)}, firm pinch ${m.closed.toFixed(2)})` : ''}`]);
         rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}${m.tremorHz ? `, tremor band peak ${m.tremorHz} Hz, noise ${Math.round(m.noise * 100)}%` : ''}`]);
         rows.push(['Button pull', `${k.snap} px${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
-        rows.push(['Ratings', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}${b.effort ? `, effort ${b.effort}/7` : ''}`).join(' · ') : '–']);
+        rows.push(['How easy', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–']);
       });
       rows.push(['You said', p.answers ? `${{ steady: 'steady', some: 'a little shaky', shaky: 'very shaky' }[p.answers.steady]} · ${{ close: 'sitting close', arm: 'about an arm’s length away', far: 'sitting further back' }[p.answers.sit]}` : '–']);
       rows.push(['Trained', new Date(p.trained).toLocaleString()]);
