@@ -616,7 +616,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.15, 3 Nov 2026">v0.15</div>
+<div id="ver" title="Hand control training, version 0.16, 3 Nov 2026">v0.16</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -635,7 +635,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.15 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.16 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -653,7 +653,7 @@
       <label><input type="radio" name="hand" value="right" /><span>Right only</span></label>
       <label><input type="radio" name="hand" value="left" /><span>Left only</span></label>
     </div>
-    <p class="muted">Each task says which hand to use. Imagine a line down the middle of you (shown dashed on the camera picture): your right hand works to the right of it and your left to the left, and the other hand is ignored, so you can rest it in view. Each hand gets its own settings in the atlas.</p>
+    <p class="muted">Each task says which hand to use. Imagine a line down the middle of you and one across your waist (both shown on the camera picture): your right hand works to the right of the middle line and your left to the left, the other hand is ignored, and any hand resting below the waist line is ignored, so you can rest there. Each hand gets its own settings in the atlas.</p>
   </fieldset>
   <fieldset>
     <legend>How steady is your hand?</legend>
@@ -1122,6 +1122,8 @@
       } else {
         R.reach = { x0: clamp(x0, 0, 0.6), xs: clamp(x1 - x0, 0.15, 1), y0: clamp(y0, 0, 0.6), ys: clamp(y1 - y0, 0.12, 1) };
         reach = R.reach;
+        WAIST = clamp(y1 + 0.07, 0.6, 0.97); // just below your lowest comfortable reach
+        R.waist = +WAIST.toFixed(3);
       }
       S.el.classList.add('got');
       SND.got();
@@ -1857,7 +1859,14 @@
     // view it settles slowly on the point halfway between them, so it follows where you actually sit.
     let MID = 0.5;
     const palmX = (L) => 1 - (L[0].x + L[5].x + L[9].x + L[13].x + L[17].x) / 5; // mirrored
+    // ---- and a horizontal one at about your waist: a hand below it is resting (ignored, even the one in use), a hand above
+    // it is working. It starts near the bottom of the picture and, after the Reach step, sits a little below the lowest
+    // corners you reached, so reaching down to a bottom corner still counts as working.
+    let WAIST = 0.84;
+    const palmY = (L) => (L[0].y + L[5].y + L[9].y + L[13].y + L[17].y) / 5;
+    const resting = (h) => palmY(h.L) > WAIST;
     function pickHand(all) {
+      all = all.filter((h) => !resting(h)); // resting hands don't count at all
       if (!all.length) return null;
       if (all.length >= 2) {
         const m = (palmX(all[0].L) + palmX(all[1].L)) / 2;
@@ -1878,6 +1887,8 @@
       // a lone hand on the wrong side of the midline is still shown, so the wrong-hand message can explain
       return best;
     }
+    let restShown = false,
+      prevPrompt = '';
     function loop() {
       requestAnimationFrame(loop);
       const v = $('vid');
@@ -1903,8 +1914,15 @@
       x.lineWidth = 3;
       x.beginPath();
       x.moveTo((1 - MID) * cv.width, 0);
-      x.lineTo((1 - MID) * cv.width, cv.height);
+      x.lineTo((1 - MID) * cv.width, WAIST * cv.height);
       x.stroke();
+      x.strokeStyle = 'rgba(127, 200, 255, 0.85)';
+      x.beginPath();
+      x.moveTo(0, WAIST * cv.height);
+      x.lineTo(cv.width, WAIST * cv.height);
+      x.stroke();
+      x.fillStyle = 'rgba(127, 200, 255, 0.12)';
+      x.fillRect(0, WAIST * cv.height, cv.width, cv.height * (1 - WAIST));
       x.restore();
       all.forEach((h) => {
         if (h === pickd) return;
@@ -1917,8 +1935,21 @@
       });
       if (!L) {
         $('cur').hidden = true;
-        if (step && step !== 'done') handSeen(false, now);
+        const rest = all.some(resting);
+        if (step && step !== 'done' && step !== 'ask') {
+          if (rest) {
+            if (!restShown) {
+              restShown = true;
+              prevPrompt = $('prompt').innerHTML;
+              prompt('Resting. Raise your ' + handWord() + ' above the blue line to carry on.', 'Below the line, at about your waist, hands are ignored, so you can rest them there.');
+            }
+          } else handSeen(false, now);
+        }
         return;
+      }
+      if (restShown) {
+        restShown = false;
+        if (prevPrompt) $('prompt').innerHTML = prevPrompt;
       }
       if (step && step !== 'done') handSeen(true, now);
       x.fillStyle = '#06d6a0';
@@ -2024,6 +2055,7 @@
     window.trainCheck = check;
     window.trainPick = (all) => pickHand(all);
     window.trainMid = () => MID;
+    window.trainWaist = () => WAIST;
     window.trainState = () => ({ step, S, R });
   })();
 </script>
