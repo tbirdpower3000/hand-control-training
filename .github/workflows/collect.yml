@@ -5,7 +5,7 @@ name: Collect training results
 # variable, never run as code or inserted into a command.
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened]
 
 permissions:
   contents: write

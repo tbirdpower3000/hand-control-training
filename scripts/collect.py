@@ -65,6 +65,10 @@ rec = {
     'when': str(p.get('when', ''))[:10],
 }
 os.makedirs('data', exist_ok=True)
+# the same issue twice (opened and labelled) counts once
+if os.path.exists(OUT) and any(json.loads(l).get('issue') == rec['issue'] for l in open(OUT) if l.strip()):
+    open('collect_msg.txt', 'w').write('Already stored, thanks.')
+    sys.exit(0)
 with open(OUT, 'a') as f:
     f.write(json.dumps(rec, separators=(',', ':')) + '\n')
 
