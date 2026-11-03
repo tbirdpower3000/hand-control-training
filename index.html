@@ -401,7 +401,7 @@
   }
   /* cursor themes: the ring, a neon rave hand, a chubby baby hand */
   #cur.theme-rave,
-  #cur.theme-baby {
+  #cur.theme-alien {
     width: 56px;
     height: 56px;
     border: 0;
@@ -413,7 +413,7 @@
     line-height: 1;
   }
   #cur.theme-rave::after,
-  #cur.theme-baby::after {
+  #cur.theme-alien::after {
     inset: -6px;
   }
   #cur.theme-rave {
@@ -437,15 +437,27 @@
       filter: drop-shadow(0 0 6px #ff3df2) drop-shadow(0 0 14px #35f0ff);
     }
   }
-  #cur.theme-baby {
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
-    font-size: 44px;
+  /* the alien hand: an eerie green glow that breathes, and a slow hover; it curls when you pinch */
+  #cur.theme-alien {
+    filter: hue-rotate(90deg) saturate(2) drop-shadow(0 0 8px #5dff7a) drop-shadow(0 0 18px #2bd36a);
+    animation: alien 2.4s ease-in-out infinite;
   }
-  #cur.theme-baby.pinch {
+  #cur.theme-alien.pinch {
     transform: translate(-50%, -50%) scale(0.85) rotate(-12deg);
+    filter: hue-rotate(90deg) saturate(2) drop-shadow(0 0 12px #c8ff5d) drop-shadow(0 0 26px #5dff7a);
+  }
+  @keyframes alien {
+    0%,
+    100% {
+      filter: hue-rotate(90deg) saturate(2) drop-shadow(0 0 8px #5dff7a) drop-shadow(0 0 18px #2bd36a);
+    }
+    50% {
+      filter: hue-rotate(110deg) saturate(2.4) drop-shadow(0 0 14px #8dffa6) drop-shadow(0 0 30px #2bd36a);
+    }
   }
   @media (prefers-reduced-motion: reduce) {
-    #cur.theme-rave {
+    #cur.theme-rave,
+    #cur.theme-alien {
       animation: none;
     }
   }
@@ -496,7 +508,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.3, 3 Nov 2026">v0.3</div>
+<div id="ver" title="Hand control training, version 0.4, 3 Nov 2026">v0.4</div>
 <div id="steps" hidden><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="cur" hidden></div>
@@ -510,7 +522,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.3 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.4 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -550,7 +562,7 @@
     <div class="chips">
       <label><input type="radio" name="theme" value="ring" checked /><span>◯ Ring</span></label>
       <label><input type="radio" name="theme" value="rave" /><span>🖐 Rave hand</span></label>
-      <label><input type="radio" name="theme" value="baby" /><span>🖐🏼 Baby hand</span></label>
+      <label><input type="radio" name="theme" value="alien" /><span>🖖 Alien hand</span></label>
     </div>
   </fieldset>
   <fieldset>
@@ -679,7 +691,7 @@
     }
 
     // ---- cursor theme and sounds, chosen on the first card
-    const THEME = { ring: '', rave: '🖐', baby: '🖐🏼' };
+    const THEME = { ring: '', rave: '🖐', alien: '🖖' };
     let theme = 'ring',
       sndOn = true,
       ac = null;
