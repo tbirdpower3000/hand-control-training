@@ -159,6 +159,18 @@
     color: var(--good);
     border-color: rgba(125, 255, 154, 0.5);
   }
+  #steps span.hand {
+    color: var(--space);
+    background: var(--blue);
+    border-color: var(--blue);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  #steps span.hand.wrong {
+    background: var(--bad);
+    border-color: var(--bad);
+    color: #fff;
+  }
   #prompt {
     position: fixed;
     left: 50%;
@@ -254,11 +266,44 @@
   #cur.pinch {
     background: var(--gold);
   }
+  /* the camera preview keeps out of the way: when the cursor or a target comes near, it slides to another corner */
   #cam {
     position: fixed;
     right: max(12px, env(safe-area-inset-right, 0px));
     top: max(12px, env(safe-area-inset-top, 0px));
     width: 180px;
+    opacity: 0.7;
+    transition:
+      left 0.45s,
+      right 0.45s,
+      top 0.45s,
+      bottom 0.45s,
+      opacity 0.3s;
+  }
+  #cam.c-tl {
+    left: max(12px, env(safe-area-inset-left, 0px));
+    top: max(52px, env(safe-area-inset-top, 0px));
+    right: auto;
+    bottom: auto;
+  }
+  #cam.c-tr {
+    right: max(12px, env(safe-area-inset-right, 0px));
+    top: max(52px, env(safe-area-inset-top, 0px));
+    left: auto;
+    bottom: auto;
+  }
+  #cam.c-bl {
+    left: max(12px, env(safe-area-inset-left, 0px));
+    bottom: max(92px, env(safe-area-inset-bottom, 0px));
+    right: auto;
+    top: auto;
+  }
+  #cam.c-br {
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: max(92px, env(safe-area-inset-bottom, 0px));
+    left: auto;
+    top: auto;
+  }
     border-radius: 10px;
     overflow: hidden;
     border: 1px solid var(--line);
@@ -508,8 +553,8 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.4, 3 Nov 2026">v0.4</div>
-<div id="steps" hidden><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
+<div id="ver" title="Hand control training, version 0.6, 3 Nov 2026">v0.6</div>
+<div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="cur" hidden></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
@@ -522,7 +567,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.4 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.6 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -534,12 +579,13 @@
     <li><b>Targets:</b> press eight buttons as they appear.</li>
   </ol>
   <fieldset>
-    <legend>Which hand will you use?</legend>
+    <legend>Which hands should it learn?</legend>
     <div class="chips">
-      <label><input type="radio" name="hand" value="right" checked /><span>Right</span></label>
-      <label><input type="radio" name="hand" value="left" /><span>Left</span></label>
-      <label><input type="radio" name="hand" value="either" /><span>Either</span></label>
+      <label><input type="radio" name="hand" value="both" checked /><span>Both, one after the other</span></label>
+      <label><input type="radio" name="hand" value="right" /><span>Right only</span></label>
+      <label><input type="radio" name="hand" value="left" /><span>Left only</span></label>
     </div>
+    <p class="muted">Each task says which hand to use. The camera checks it is that hand, and each hand gets its own settings in the atlas.</p>
   </fieldset>
   <fieldset>
     <legend>How steady is your hand?</legend>
@@ -742,6 +788,39 @@
       finish: () => [523.25, 659.25, 783.99, 880, 1046.5, 1318.5].forEach((f, i) => note(f, i * 0.1, 0.08, 1.2)),
       rate: (n) => note(523.25 * Math.pow(2, (n - 1) / 6), 0, 0.07, 0.35), // the scale sings up from 1 to 7
     };
+    // ---- which hand: the plan from the first card; each task names the hand, and the camera checks it is that hand
+    let HAND = 'Right',
+      PLAN = ['Right', 'Left'],
+      seen = [],
+      wrongSince = 0;
+    const handWord = () => `<b style="color:var(--blue)">${HAND.toUpperCase()} HAND</b>`;
+    function setHand(h) {
+      HAND = h;
+      seen = [];
+      wrongSince = 0;
+      $('handBadge').textContent = h.toUpperCase() + ' HAND';
+      $('handBadge').classList.remove('wrong');
+    }
+    // MediaPipe names the hand it sees (the subject's own hand, since the raw camera frame is not mirrored); a mismatch for
+    // more than a second pauses the task and asks for the other hand
+    function checkHand(label, t) {
+      if (label !== 'Left' && label !== 'Right') return true;
+      seen.push(label);
+      if (seen.length > 10) seen.shift();
+      const wrong = seen.length >= 6 && seen.filter((x) => x !== HAND).length >= 5;
+      if (!wrong) {
+        wrongSince = 0;
+        $('handBadge').classList.remove('wrong');
+        return true;
+      }
+      wrongSince = wrongSince || t;
+      if (t - wrongSince > 1000) {
+        $('handBadge').classList.add('wrong');
+        prompt(`That looks like your ${HAND === 'Right' ? 'left' : 'right'} hand. Please use your ${handWord()} for this task.`, 'The task carries on as soon as the right hand is in view.');
+        return false;
+      }
+      return true;
+    }
     const R = {}; // what the exercises measure
     let step = null,
       S = {}; // the current exercise's state
@@ -787,7 +866,7 @@
       if (S.el) S.el.classList.add('got');
       S.el = tgt('corner', fxp * innerWidth, fyp * innerHeight, S.i + 1);
       S.hold = [];
-      prompt(`Move your open hand to the <b>${name}</b> of where it's comfortable, and hold it there`, 'Stretch only as far as feels easy. The cursor may not reach the circle yet: that is what this step fixes.');
+      prompt(`${handWord()}: move it, open, to the <b>${name}</b> of where it's comfortable, and hold it there`, 'Stretch only as far as feels easy. The cursor may not reach the circle yet: that is what this step fixes.');
     }
     function reachFrame(f, t) {
       if (f.pinch) return;
@@ -840,7 +919,7 @@
     }
     function pinchPrompt() {
       prompt(
-        S.phase === 'open' ? `Round ${S.round + 1} of 3: <b>open your hand</b> and hold` : `Round ${S.round + 1} of 3: <b>pinch</b> thumb to index finger, firmly, and hold`,
+        S.phase === 'open' ? `${handWord()}, round ${S.round + 1} of 3: <b>open it</b> and hold` : `${handWord()}, round ${S.round + 1} of 3: <b>pinch</b> thumb to index finger, firmly, and hold`,
         'Hold each for about a second.',
       );
     }
@@ -887,7 +966,7 @@
       const x = innerWidth / 2,
         y = innerHeight / 2;
       S = { el: tgt('dot', x, y), x, y, on: [], t0: null };
-      prompt('Put the cursor on the <b>gold dot</b> and keep it there', 'Relax your hand. This measures how much it naturally wobbles.');
+      prompt(`${handWord()}: put the cursor on the <b>gold dot</b> and keep it there`, 'Relax your hand. This measures how much it naturally wobbles.');
     }
     function stillFrame(f, t) {
       const d = Math.hypot(f.x - S.x, f.y - S.y);
@@ -915,6 +994,7 @@
     }
 
     // ---- 4. targets: press eight buttons as they appear, the way the atlas's top-bar buttons are pressed
+    const NT = () => (PLAN.length > 1 ? 6 : 8); // targets per hand: fewer when both hands are trained
     function startAim() {
       step = 'aim';
       mark('aim');
@@ -929,7 +1009,7 @@
         y = m + 40 + Math.random() * (innerHeight - 2 * m - 120);
       S.el = tgt('pad', x, y, ['Mars', 'Next map', 'Zoom', 'Today', 'Saturn', 'Brighter', 'Titan', 'Pause'][S.n % 8]);
       S.cur = { t0: performance.now(), arrivals: 0, misses: 0, on: false, wasPinch: true, closest: 1e9, onSince: 0, openSince: 0 };
-      prompt(`Target ${S.n + 1} of 8: move onto the button and <b>pinch</b> to press it`, 'Take your time. Overshooting and coming back is fine: it tells the atlas how much help to give.');
+      prompt(`${handWord()}, target ${S.n + 1} of ${NT()}: move onto the button and <b>pinch</b> to press it`, 'Take your time. Overshooting and coming back is fine: it tells the atlas how much help to give.');
     }
     function aimFrame(f, t) {
       const r = S.el.getBoundingClientRect(),
@@ -972,14 +1052,14 @@
           const el = S.el;
           S.el = null;
           setTimeout(() => el.remove(), 250);
-          if (S.n < 8) setTimeout(nextPad, 350);
+          if (S.n < NT()) setTimeout(nextPad, 350);
           else setTimeout(() => check('aim'), 400);
         } else {
           if (d < 160) c.misses++;
           if (t - (S.lastMiss || 0) > 1500) {
             S.lastMiss = t;
             SND.miss();
-            prompt(`Target ${S.n + 1} of 8: not quite. Move the cursor <b>onto the button</b>, then pinch.`, 'Open your hand fully between tries. If the cursor can’t get there, press Redo reach below.');
+            prompt(`${handWord()}, target ${S.n + 1} of ${NT()}: not quite. Move the cursor <b>onto the button</b>, then pinch.`, 'Open your hand fully between tries. If the cursor can’t get there, press Redo reach below.');
           }
         }
       }
@@ -1085,13 +1165,8 @@
       askPinch = f.pinch;
     }
 
-    // ---- the profile
+    // ---- the profile: one record per hand, then the next hand or the summary
     function finish() {
-      step = 'done';
-      clearTargets();
-      $('steps').hidden = true;
-      $('prompt').hidden = true;
-      $('cur').hidden = true;
       const res = S.res,
         extra = res.reduce((a, c) => a + Math.max(0, c.arrivals - 1) + c.misses, 0) / Math.max(1, res.length),
         time = median(res.map((c) => c.time));
@@ -1099,17 +1174,45 @@
       R.snap = Math.round(clamp(Math.max(R.prior.snap, 28 + extra * 9 + Math.max(0, (R.wobble || 0) - 3) * 1.5) + (R.snapBoost || 0), 28, 72));
       R.tries = extra;
       R.time = time;
-      SND.finish();
-      const prof = {
-        on: true,
+      R.hands = R.hands || {};
+      R.hands[HAND] = {
         k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff },
         reach: R.reach || null,
-        hand: R.ans && R.ans.hand,
-        answers: R.ans || null,
         ratings: R.ratings || null,
         measured: { wobble: R.wobble ?? null, open: R.open ?? null, closed: R.closed ?? null, tries: R.tries ?? null, time: R.time ?? null },
-        theme,
         trained: new Date().toISOString(),
+      };
+      const next = PLAN[PLAN.indexOf(HAND) + 1];
+      if (next) {
+        // the other hand: same exercises again, starting from the answers, with this hand's measurements set aside
+        SND.step();
+        ['reach', 'reachNote', 'open', 'closed', 'pOn', 'pOff', 'wobble', 'minCut', 'beta', 'snap', 'snapBoost', 'tries', 'time', 'ratings'].forEach((k) => delete R[k]);
+        redo = {};
+        resetFilters();
+        setHand(next);
+        clearTargets();
+        prompt(`Now the same with your ${handWord()}.`, 'Put the other hand down, out of the camera’s view.');
+        return setTimeout(startReach, 2200);
+      }
+      step = 'done';
+      clearTargets();
+      $('steps').hidden = true;
+      $('prompt').hidden = true;
+      $('cur').hidden = true;
+      SND.finish();
+      const first = R.hands[PLAN[0]];
+      const prof = {
+        v: 2,
+        on: true,
+        hands: R.hands,
+        k: first.k,
+        reach: first.reach,
+        hand: PLAN.length > 1 ? 'both' : PLAN[0].toLowerCase(),
+        answers: R.ans || null,
+        ratings: first.ratings,
+        measured: first.measured,
+        theme,
+        trained: first.trained,
       };
       save(prof);
       showSummary(prof);
@@ -1123,19 +1226,22 @@
       }
     }
     function showSummary(p) {
-      const k = p.k,
-        smooth = k.minCut >= 0.75 ? 'light (your hand is steady)' : k.minCut >= 0.5 ? 'medium' : k.minCut >= 0.35 ? 'strong' : 'very strong';
-      $('sum').innerHTML = [
-        ['Reach', p.reach ? `your comfortable area, ${Math.round(p.reach.xs * 100)} × ${Math.round(p.reach.ys * 100)}% of the camera view` : R.reachNote || 'default'],
-        ['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${R.open ? ` (your open hand ${R.open.toFixed(2)}, firm pinch ${R.closed.toFixed(2)})` : ''}`],
-        ['Smoothing', `${smooth}${R.wobble != null ? `, wobble ${R.wobble.toFixed(1)} px` : ''}`],
-        ['Button pull', `${k.snap} px${R.tries != null ? ` (${R.tries.toFixed(1)} extra tries per target, ${(R.time / 1000).toFixed(1)} s typical)` : ''}`],
-        ['You said', p.answers ? `${p.answers.hand} hand · ${{ steady: 'steady', some: 'a little shaky', shaky: 'very shaky' }[p.answers.steady]} · ${{ close: 'sitting close', arm: 'about an arm’s length away', far: 'sitting further back' }[p.answers.sit]}` : '–'],
-        ['Ratings', p.ratings ? Object.entries(p.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–'],
-        ['Trained', new Date(p.trained).toLocaleString()],
-      ]
-        .map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`)
-        .join('');
+      const hands = p.hands || { [p.hand === 'left' ? 'Left' : 'Right']: p };
+      const rows = [];
+      Object.entries(hands).forEach(([h, q]) => {
+        const k = q.k,
+          m = q.measured || {},
+          smooth = k.minCut >= 0.75 ? 'light (steady)' : k.minCut >= 0.5 ? 'medium' : k.minCut >= 0.35 ? 'strong' : 'very strong';
+        rows.push([`<span style="color:var(--blue)">${h} hand</span>`, '']);
+        rows.push(['Reach', q.reach ? `${Math.round(q.reach.xs * 100)} × ${Math.round(q.reach.ys * 100)}% of the camera view` : 'default']);
+        rows.push(['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${m.open != null ? ` (open ${m.open.toFixed(2)}, firm pinch ${m.closed.toFixed(2)})` : ''}`]);
+        rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}`]);
+        rows.push(['Button pull', `${k.snap} px${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
+        rows.push(['Ratings', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–']);
+      });
+      rows.push(['You said', p.answers ? `${{ steady: 'steady', some: 'a little shaky', shaky: 'very shaky' }[p.answers.steady]} · ${{ close: 'sitting close', arm: 'about an arm’s length away', far: 'sitting further back' }[p.answers.sit]}` : '–']);
+      rows.push(['Trained', new Date(p.trained).toLocaleString()]);
+      $('sum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
       $('intro').hidden = true;
       $('done').hidden = false;
     }
@@ -1168,6 +1274,11 @@
         version: 1,
         k: p.k,
         reach: p.reach ? { xs: +p.reach.xs.toFixed(3), ys: +p.reach.ys.toFixed(3) } : null,
+        hands: p.hands
+          ? Object.fromEntries(
+              Object.entries(p.hands).map(([h, q]) => [h, { k: q.k, reach: q.reach ? { xs: +q.reach.xs.toFixed(3), ys: +q.reach.ys.toFixed(3) } : null, ratings: q.ratings, measured: q.measured }]),
+            )
+          : null,
         answers: p.answers,
         ratings: p.ratings,
         measured: p.measured,
@@ -1221,19 +1332,28 @@
       sit: { close: { xs: 0.62, ys: 0.58, snap: 0 }, arm: { xs: 0.56, ys: 0.52, snap: 0 }, far: { xs: 0.4, ys: 0.38, snap: 8 } },
       hand: { right: 0.06, left: -0.06, either: 0 }, // where a comfortable box sits, as a shift of its centre in the mirrored view
     };
+    function resetFilters() {
+      const st = PRIOR.steady[(R.ans || {}).steady] || PRIOR.steady.steady;
+      fx.minCut = fy.minCut = st.minCut;
+      fx.beta = fy.beta = st.beta;
+      pOn = BASE.pOn;
+      pOff = BASE.pOff;
+      pinchOn = false;
+    }
     async function begin() {
       $('intro').hidden = true;
       $('cur').hidden = false;
       R.ans = { hand: pick('hand'), steady: pick('steady'), sit: pick('sit') };
       setTheme(pick('theme'));
       sndOn = pick('snd') !== 'off';
+      PLAN = R.ans.hand === 'left' ? ['Left'] : R.ans.hand === 'right' ? ['Right'] : ['Right', 'Left'];
+      delete R.hands;
+      redo = {};
+      setHand(PLAN[0]);
       const st = PRIOR.steady[R.ans.steady] || PRIOR.steady.steady,
         si = PRIOR.sit[R.ans.sit] || PRIOR.sit.arm,
-        sh = PRIOR.hand[R.ans.hand] || 0;
-      fx.minCut = fy.minCut = st.minCut;
-      fx.beta = fy.beta = st.beta;
-      pOn = BASE.pOn;
-      pOff = BASE.pOff;
+        sh = 0;
+      resetFilters();
       R.prior = { minCut: st.minCut, beta: st.beta, snap: st.snap + si.snap };
       BASE_REACH_NOW.xs = si.xs;
       BASE_REACH_NOW.ys = si.ys;
@@ -1242,14 +1362,44 @@
       Object.keys(R).forEach((k) => ['ans', 'prior'].includes(k) || delete R[k]);
       startReach();
     }
-    function frame(L, t) {
+    // the camera preview dodges: if the cursor or the current target is within 120 px of it, it moves to the corner
+    // furthest from both (at most once every 1.2 s, so it never flutters)
+    let camT = 0;
+    function dodge(f, t) {
+      if (t - camT < 1200) return;
+      const cam = $('cam'),
+        r = cam.getBoundingClientRect(),
+        near = (x, y) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom)) < 120;
+      const tg = S && S.el ? S.el.getBoundingClientRect() : null,
+        tx = tg ? tg.left + tg.width / 2 : null,
+        ty = tg ? tg.top + tg.height / 2 : null;
+      if (!near(f.x, f.y) && !(tg && near(tx, ty))) return;
+      const W = innerWidth,
+        H = innerHeight,
+        corners = { 'c-tl': [100, 110], 'c-tr': [W - 100, 110], 'c-bl': [100, H - 160], 'c-br': [W - 100, H - 160] };
+      let best = null,
+        bd = -1;
+      Object.entries(corners).forEach(([k, [x, y]]) => {
+        const d = Math.min(Math.hypot(x - f.x, y - f.y), tg ? Math.hypot(x - tx, y - ty) : 1e9);
+        if (d > bd) {
+          bd = d;
+          best = k;
+        }
+      });
+      cam.className = best;
+      camT = t;
+    }
+    function frame(L, t, label) {
       const f = feat(L, t),
         c = $('cur');
+      dodge(f, t);
+      const ok = step === 'ask' || step === 'done' || checkHand(label, t);
       c.hidden = false;
       c.style.left = f.x + 'px';
       c.style.top = f.y + 'px';
       c.classList.toggle('pinch', f.pinch);
       if (step !== 'pinch') c.style.setProperty('--p', clamp((0.75 - f.pr) / 0.45, 0, 1));
+      if (!ok) return;
       if (step === 'reach') reachFrame(f, t);
       else if (step === 'pinch') pinchFrame(f, t);
       else if (step === 'still') stillFrame(f, t);
@@ -1263,7 +1413,8 @@
       lastT = v.currentTime;
       const now = performance.now(),
         r = landmarker.detectForVideo(v, now),
-        L = (r.landmarks || [])[0];
+        L = (r.landmarks || [])[0],
+        label = (((r.handedness || r.handednesses || [])[0] || [])[0] || {}).categoryName;
       const cv = $('cv');
       cv.width = v.videoWidth;
       cv.height = v.videoHeight;
@@ -1279,7 +1430,7 @@
         x.arc(p.x * cv.width, p.y * cv.height, 4, 0, 7);
         x.fill();
       });
-      frame(L, now);
+      frame(L, now, label);
     }
     $('go').onclick = async () => {
       const m = $('introMsg');
@@ -1327,7 +1478,7 @@
       }
     } catch (e) {}
     // for testing without a camera: feed hand frames and start the exercises directly
-    window.trainFeed = frame;
+    window.trainFeed = (L, t, label) => frame(L, t, label || HAND);
     window.trainBegin = begin;
     window.trainState = () => ({ step, S, R });
   })();
