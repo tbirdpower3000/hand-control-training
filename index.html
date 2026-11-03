@@ -528,6 +528,29 @@
   .warnbox b {
     color: var(--gold);
   }
+  #camCtl {
+    position: fixed;
+    left: max(12px, env(safe-area-inset-left, 0px));
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    background: rgba(7, 11, 20, 0.75);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+  }
+  #camCtl input {
+    width: 110px;
+    accent-color: var(--gold);
+  }
+  #cam.c-off {
+    opacity: 0;
+    pointer-events: none;
+  }
   #ver {
     position: fixed;
     left: max(12px, env(safe-area-inset-left, 0px));
@@ -553,9 +576,10 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.6, 3 Nov 2026">v0.6</div>
+<div id="ver" title="Hand control training, version 0.7, 3 Nov 2026">v0.7</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
-<div id="cam" hidden><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
+<div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
+<div id="camCtl" hidden><label>📷 Camera size <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Camera preview size; 0 hides it" /></label><span id="camSizeO">180 px</span></div>
 <div id="cur" hidden></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
@@ -567,7 +591,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.6 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.7 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -617,6 +641,7 @@
       <label><input type="radio" name="snd" value="on" checked /><span>🔊 On</span></label>
       <label><input type="radio" name="snd" value="off" /><span>🔇 Off</span></label>
     </div>
+    <p class="muted">With sounds on, two falling notes mean your hand has left the camera's view and a rising note means it's back, so you can shrink or hide the camera preview (slider at the bottom left during training).</p>
   </fieldset>
   <p class="muted">
     After each step you can rate how it went from 1 to 7, or let it carry on by itself. Sit where you'll use the atlas.
@@ -1199,6 +1224,7 @@
       $('steps').hidden = true;
       $('prompt').hidden = true;
       $('cur').hidden = true;
+      $('camCtl').hidden = true;
       SND.finish();
       const first = R.hands[PLAN[0]];
       const prof = {
@@ -1319,6 +1345,7 @@
     };
     $('again').onclick = () => {
       $('done').hidden = true;
+      $('camCtl').hidden = false;
       begin();
     };
 
@@ -1361,6 +1388,37 @@
       BASE_REACH_NOW.y0 = clamp(0.44 - si.ys / 2, 0, 0.6);
       Object.keys(R).forEach((k) => ['ans', 'prior'].includes(k) || delete R[k]);
       startReach();
+    }
+    // camera preview size, 0 hides it; remembered in this browser
+    const camSize = (v) => {
+      const cam = $('cam');
+      cam.style.width = Math.max(40, v) + 'px';
+      cam.classList.toggle('c-off', v === 0);
+      $('camSizeO').textContent = v === 0 ? 'hidden' : v + ' px';
+      try {
+        localStorage.setItem('trainCamSize', v);
+      } catch (e) {}
+    };
+    try {
+      const v = +localStorage.getItem('trainCamSize');
+      if (!isNaN(v) && localStorage.getItem('trainCamSize') !== null) $('camSize').value = v;
+    } catch (e) {}
+    $('camSize').addEventListener('input', (e) => camSize(+e.target.value));
+    camSize(+$('camSize').value);
+    // out of view: two falling notes when the hand leaves the camera's view, one rising note when it is back
+    let hadHand = false,
+      lostT = 0;
+    function handSeen(yes, t) {
+      if (yes && !hadHand && lostT && t - lostT > 300) {
+        note(659.25, 0, 0.06, 0.3);
+        note(880, 0.1, 0.06, 0.4);
+      }
+      if (!yes && hadHand) {
+        lostT = t;
+        note(659.25, 0, 0.06, 0.4);
+        note(523.25, 0.14, 0.05, 0.55);
+      }
+      hadHand = yes;
     }
     // the camera preview dodges: if the cursor or the current target is within 120 px of it, it moves to the corner
     // furthest from both (at most once every 1.2 s, so it never flutters)
@@ -1422,8 +1480,10 @@
       x.clearRect(0, 0, cv.width, cv.height);
       if (!L) {
         $('cur').hidden = true;
+        if (step && step !== 'done') handSeen(false, now);
         return;
       }
+      if (step && step !== 'done') handSeen(true, now);
       x.fillStyle = '#06d6a0';
       L.forEach((p) => {
         x.beginPath();
@@ -1450,6 +1510,7 @@
       v.srcObject = stream;
       await v.play();
       $('cam').hidden = false;
+      $('camCtl').hidden = false;
       m.textContent = 'Loading hand tracking…';
       try {
         const { FilesetResolver, HandLandmarker } = await import(MP + '/vision_bundle.mjs');
