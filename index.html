@@ -366,7 +366,7 @@
     top: 50%;
     transform: translate(-50%, -50%);
     z-index: 9;
-    width: min(30rem, calc(100vw - 32px));
+    width: min(42rem, calc(100vw - 32px)); /* room for all seven numbers in one row */
     background: var(--card);
     border: 1px solid var(--gold);
     border-radius: 16px;
@@ -412,6 +412,21 @@
       min-height: 44px;
       font-size: 1.05rem;
     }
+  }
+  #scale button.picked {
+    background: var(--gold);
+    color: var(--space);
+    border-color: var(--gold);
+  }
+  #confirm {
+    display: grid;
+    gap: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+  #confirm button.hot {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(255, 216, 138, 0.35);
   }
   #scale button.hot {
     border-color: var(--gold);
@@ -576,7 +591,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.10, 3 Nov 2026">v0.10</div>
+<div id="ver" title="Hand control training, version 0.11, 3 Nov 2026">v0.11</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -587,11 +602,15 @@
   <div id="scale" role="group" aria-label="Rate it from 1 to 7"></div>
   <div class="ends"><span>1 · not at all</span><span>7 · perfectly</span></div>
   <div id="askTimer" aria-hidden="true"><i></i></div>
+  <div id="confirm" hidden>
+    <p id="confirmQ"></p>
+    <div class="row"><button type="button" class="primary" id="confirmYes">✓ Yes, that's right</button><button type="button" id="confirmNo">↺ Change it</button></div>
+  </div>
   <p class="muted" id="askNote">Pinch or click a number. If you don’t, it carries on by itself after 12 seconds using what it measured.</p>
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.10 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.11 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1266,6 +1285,7 @@
       $('prompt').hidden = true;
       $('askQ').textContent = QUESTIONS[which];
       $('ask').hidden = false;
+      unpick();
       askT0 = performance.now();
       askPinch = true;
       askOpen = 0;
@@ -1288,7 +1308,7 @@
       const auto = n == null,
         score = auto ? measured(which) : n;
       (R.ratings = R.ratings || {})[which] = { score, auto };
-      if (!auto) SND.rate(n);
+      if (!auto) SND.got();
       if (score >= 4) return NEXT[which]();
       // a low score: redo the step once, or turn the help up, then move on
       redo[which] = (redo[which] || 0) + 1;
@@ -1310,23 +1330,53 @@
       }
     }
     $('scale').innerHTML = [1, 2, 3, 4, 5, 6, 7].map((n) => `<button type="button" data-n="${n}" aria-label="${n} of 7">${n}</button>`).join('');
-    $('scale').querySelectorAll('button').forEach((b) => (b.onclick = () => answer(+b.dataset.n)));
+    // picking a number asks you to confirm it, so a stray pinch can't choose for you
+    let picked = null;
+    const WORDS = { 1: 'not at all', 2: 'badly', 3: 'not very well', 4: 'OK', 5: 'well', 6: 'very well', 7: 'perfectly' };
+    function pickRating(n) {
+      if (!asking) return;
+      picked = n;
+      SND.rate(n);
+      $('scale').querySelectorAll('button').forEach((b) => b.classList.toggle('picked', +b.dataset.n === n));
+      $('confirmQ').innerHTML = `You chose <b>${n} of 7</b> (${WORDS[n]}). Is that right?`;
+      $('confirm').hidden = false;
+      $('askTimer').style.visibility = 'hidden';
+      $('askNote').hidden = true;
+      cancelAnimationFrame(askRaf); // no auto-continue while you decide
+      askT1 = performance.now();
+      askPinch = true;
+      askOpen = 0;
+    }
+    function unpick() {
+      picked = null;
+      $('askNote').hidden = false;
+      $('scale').querySelectorAll('button').forEach((b) => b.classList.remove('picked'));
+      $('confirm').hidden = true;
+      $('askTimer').style.visibility = '';
+      askT1 = performance.now();
+    }
+    let askT1 = 0;
+    $('scale').querySelectorAll('button').forEach((b) => (b.onclick = () => pickRating(+b.dataset.n)));
+    $('confirmYes').onclick = () => {
+      const n = picked;
+      unpick();
+      if (n) answer(n);
+    };
+    $('confirmNo').onclick = () => unpick();
     // pinching a number with the hand cursor presses it
     let askPinch = true,
       askOpen = 0;
     function askFrame(f, t) {
       let hot = null;
       if (!f.pinch) askOpen = askOpen || t;
-      $('scale')
-        .querySelectorAll('button')
-        .forEach((b) => {
+      [...$('scale').querySelectorAll('button'), ...(picked ? [$('confirmYes'), $('confirmNo')] : [])].forEach((b) => {
           const r = b.getBoundingClientRect(),
             d = Math.hypot(Math.max(r.left - f.x, 0, f.x - r.right), Math.max(r.top - f.y, 0, f.y - r.bottom)),
             on = d < 18;
           b.classList.toggle('hot', on);
           if (on) hot = b;
         });
-      if (f.pinch && !askPinch && hot && askOpen && t - askOpen > 250 && t - askT0 > 500) hot.click();
+      if (f.pinch && !askPinch && hot && askOpen && t - askOpen > 250 && t - askT0 > 500 && t - askT1 > 500) hot.click();
       if (f.pinch) askOpen = 0;
       askPinch = f.pinch;
     }
@@ -1745,6 +1795,7 @@
     // for testing without a camera: feed hand frames and start the exercises directly
     window.trainFeed = (L, t, label) => frame(L, t, label || HAND);
     window.trainBegin = begin;
+    window.trainCheck = check;
     window.trainState = () => ({ step, S, R });
   })();
 </script>
