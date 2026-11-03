@@ -576,7 +576,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.8, 3 Nov 2026">v0.8</div>
+<div id="ver" title="Hand control training, version 0.9, 3 Nov 2026">v0.9</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Camera size <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Camera preview size; 0 hides it" /></label><span id="camSizeO">180 px</span></div>
@@ -591,7 +591,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.8 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.9 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -653,7 +653,7 @@
     <span>This is an educational tool for adjusting a game-like control. It is not a medical test and does not measure or diagnose anything about your health or motor skills.</span>
   </div>
   <div class="row">
-    <button type="button" class="primary" id="go">✋ Start training</button>
+    <button type="button" class="primary" id="go">✋ Start training (full screen)</button>
     <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">← Back to the atlas</a>
   </div>
   <p class="muted" id="introMsg"></p>
@@ -1366,6 +1366,7 @@
       $('prompt').hidden = true;
       $('cur').hidden = true;
       $('camCtl').hidden = true;
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       SND.finish();
       const first = R.hands[PLAN[0]];
       const prof = {
@@ -1487,6 +1488,7 @@
     $('again').onclick = () => {
       $('done').hidden = true;
       $('camCtl').hidden = false;
+      goFull();
       begin();
     };
 
@@ -1667,9 +1669,52 @@
         return;
       }
       m.textContent = '';
+      goFull();
       begin();
       loop();
     };
+    // the training runs full screen, so the reach and targets use the whole display and nothing else distracts
+    function goFull() {
+      const el = document.documentElement;
+      if (document.fullscreenElement) return;
+      try {
+        (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el).catch?.(() => {});
+      } catch (e) {}
+    }
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && step && step !== 'done') {
+        // Esc leaves full screen: hold the step and show a button to return
+        const held = step;
+        step = 'paused';
+        $('cur').hidden = true;
+        $('prompt').hidden = true;
+        $('ask').hidden = true;
+        clearTargets();
+        const card = document.createElement('section');
+        card.className = 'card';
+        card.id = 'pauseCard';
+        card.innerHTML = '<h2>Paused</h2><p>The training runs full screen so your hand can use the whole display.</p><div class="row"><button type="button" class="primary" id="resumeFs">⛶ Back to full screen and continue</button><button type="button" id="quitFs">Stop training</button></div>';
+        document.body.appendChild(card);
+        $('resumeFs').onclick = () => {
+          card.remove();
+          goFull();
+          step = held;
+          $('cur').hidden = false;
+          if (held === 'reach') startReach();
+          else if (held === 'pinch') startPinch();
+          else if (held === 'still') startStill();
+          else if (held === 'aim' || held === 'feel') startAim();
+          else if (held === 'ask') startAim();
+        };
+        $('quitFs').onclick = () => {
+          card.remove();
+          step = null;
+          $('steps').hidden = true;
+          $('camCtl').hidden = true;
+          $('intro').hidden = false;
+        };
+      }
+    });
     // a profile saved before shows straight away
     try {
       const p = JSON.parse(localStorage.getItem(KEY) || 'null');
