@@ -52,13 +52,15 @@ rat = p.get('ratings') or {}
 for n, r in (rat.items() if isinstance(rat, dict) else []):
     if not isinstance(r, dict) or r.get('score') not in (1, 2, 3, 4, 5, 6, 7):
         fail('ratings malformed')
+    if r.get('effort') is not None and r.get('effort') not in (1, 2, 3, 4, 5, 6, 7):
+        fail('effort rating malformed')
 # keep only the fields we know, so nothing else from the issue is stored
 rec = {
     'issue': int(ISSUE_NUM),
     'k': {n: round(float(k[n]), 4) for n in LIM},
     'reach': {a: round(float(p['reach'][a]), 3) for a in ('xs', 'ys')} if isinstance(p.get('reach'), dict) and all(isinstance(p['reach'].get(a), (int, float)) for a in ('xs', 'ys')) else None,
     'answers': {n: ans.get(n) for n in CHOICES},
-    'ratings': {n: {'score': r['score'], 'auto': bool(r.get('auto'))} for n, r in rat.items()} if isinstance(rat, dict) else None,
+    'ratings': {n: {'score': r['score'], 'auto': bool(r.get('auto')), 'effort': r.get('effort')} for n, r in rat.items()} if isinstance(rat, dict) else None,
     'measured': {n: (round(float(meas[n]), 4) if isinstance(meas.get(n), (int, float)) else None) for n in ('wobble', 'open', 'closed', 'tries', 'time')},
     'browser': str(p.get('browser', ''))[:12],
     'touch': bool(p.get('touch')),

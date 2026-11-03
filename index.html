@@ -591,7 +591,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.11, 3 Nov 2026">v0.11</div>
+<div id="ver" title="Hand control training, version 0.12, 3 Nov 2026">v0.12</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -600,7 +600,7 @@
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
   <p id="askQ"></p>
   <div id="scale" role="group" aria-label="Rate it from 1 to 7"></div>
-  <div class="ends"><span>1 · not at all</span><span>7 · perfectly</span></div>
+  <div class="ends"><span id="endLo">1 · not at all</span><span id="endHi">7 · perfectly</span></div>
   <div id="askTimer" aria-hidden="true"><i></i></div>
   <div id="confirm" hidden>
     <p id="confirmQ"></p>
@@ -610,7 +610,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.11 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.12 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1277,14 +1277,20 @@
       }
       return 5;
     }
-    function check(which) {
-      step = 'ask';
-      asking = which;
-      clearTargets();
-      SND.step();
-      $('prompt').hidden = true;
-      $('askQ').textContent = QUESTIONS[which];
-      $('ask').hidden = false;
+    // after "how well did it work?" comes "how much effort did it take?", on the same 1–7 scale
+    let phase = 'quality',
+      qualityN = null;
+    const EFFORT_Q = {
+      reach: 'How much effort did reaching the corners take?',
+      pinch: 'How much effort did pinching take?',
+      still: 'How much effort did keeping the cursor still take?',
+      aim: 'How much effort did hitting the buttons take?',
+    };
+    function setPhase(p) {
+      phase = p;
+      $('askQ').textContent = p === 'quality' ? QUESTIONS[asking] : EFFORT_Q[asking];
+      $('endLo').textContent = p === 'quality' ? '1 · not at all' : '1 · no effort';
+      $('endHi').textContent = p === 'quality' ? '7 · perfectly' : '7 · a lot of effort';
       unpick();
       askT0 = performance.now();
       askPinch = true;
@@ -1294,12 +1300,23 @@
         if (!asking) return;
         const k = 1 - (performance.now() - askT0) / AUTO_MS;
         $('askTimer').style.setProperty('--k', Math.max(0, k));
-        if (k <= 0) return answer(null);
+        if (k <= 0) return phase === 'quality' ? answer(null) : answer(qualityN, null);
         askRaf = requestAnimationFrame(tickT);
       };
       askRaf = requestAnimationFrame(tickT);
     }
-    function answer(n) {
+    function check(which) {
+      step = 'ask';
+      asking = which;
+      qualityN = null;
+      clearTargets();
+      SND.step();
+      $('prompt').hidden = true;
+      $('askQ').textContent = QUESTIONS[which];
+      $('ask').hidden = false;
+      setPhase('quality');
+    }
+    function answer(n, effort) {
       if (!asking) return;
       const which = asking;
       asking = null;
@@ -1307,7 +1324,17 @@
       $('ask').hidden = true;
       const auto = n == null,
         score = auto ? measured(which) : n;
-      (R.ratings = R.ratings || {})[which] = { score, auto };
+      (R.ratings = R.ratings || {})[which] = { score, auto, effort: effort ?? null };
+      // a lot of effort, even when it worked, means it should help a bit more
+      if (effort >= 5) {
+        if (which === 'still') {
+          R.minCut = Math.max(0.25, (R.minCut || BASE.minCut) - 0.05 * (effort - 4));
+          R.beta = Math.max(1, (R.beta || BASE.beta) - 0.15 * (effort - 4));
+          fx.minCut = fy.minCut = R.minCut;
+          fx.beta = fy.beta = R.beta;
+        }
+        if (which === 'aim' || which === 'reach') R.snapBoost = (R.snapBoost || 0) + 2 * (effort - 4);
+      }
       if (!auto) SND.got();
       if (score >= 4) return NEXT[which]();
       // a low score: redo the step once, or turn the help up, then move on
@@ -1332,13 +1359,14 @@
     $('scale').innerHTML = [1, 2, 3, 4, 5, 6, 7].map((n) => `<button type="button" data-n="${n}" aria-label="${n} of 7">${n}</button>`).join('');
     // picking a number asks you to confirm it, so a stray pinch can't choose for you
     let picked = null;
-    const WORDS = { 1: 'not at all', 2: 'badly', 3: 'not very well', 4: 'OK', 5: 'well', 6: 'very well', 7: 'perfectly' };
+    const WORDS = { 1: 'not at all', 2: 'badly', 3: 'not very well', 4: 'OK', 5: 'well', 6: 'very well', 7: 'perfectly' },
+      EFFORT_WORDS = { 1: 'no effort', 2: 'very little', 3: 'a little', 4: 'some', 5: 'quite a lot', 6: 'a lot', 7: 'a great deal' };
     function pickRating(n) {
       if (!asking) return;
       picked = n;
       SND.rate(n);
       $('scale').querySelectorAll('button').forEach((b) => b.classList.toggle('picked', +b.dataset.n === n));
-      $('confirmQ').innerHTML = `You chose <b>${n} of 7</b> (${WORDS[n]}). Is that right?`;
+      $('confirmQ').innerHTML = `You chose <b>${n} of 7</b> (${phase === 'quality' ? WORDS[n] : EFFORT_WORDS[n]}). Is that right?`;
       $('confirm').hidden = false;
       $('askTimer').style.visibility = 'hidden';
       $('askNote').hidden = true;
@@ -1360,7 +1388,12 @@
     $('confirmYes').onclick = () => {
       const n = picked;
       unpick();
-      if (n) answer(n);
+      if (!n) return;
+      if (phase === 'quality') {
+        qualityN = n;
+        SND.got();
+        setPhase('effort');
+      } else answer(qualityN, n);
     };
     $('confirmNo').onclick = () => unpick();
     // pinching a number with the hand cursor presses it
@@ -1455,7 +1488,7 @@
         rows.push(['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${m.open != null ? ` (open ${m.open.toFixed(2)}, firm pinch ${m.closed.toFixed(2)})` : ''}`]);
         rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}${m.tremorHz ? `, tremor band peak ${m.tremorHz} Hz, noise ${Math.round(m.noise * 100)}%` : ''}`]);
         rows.push(['Button pull', `${k.snap} px${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
-        rows.push(['Ratings', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–']);
+        rows.push(['Ratings', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}${b.effort ? `, effort ${b.effort}/7` : ''}`).join(' · ') : '–']);
       });
       rows.push(['You said', p.answers ? `${{ steady: 'steady', some: 'a little shaky', shaky: 'very shaky' }[p.answers.steady]} · ${{ close: 'sitting close', arm: 'about an arm’s length away', far: 'sitting further back' }[p.answers.sit]}` : '–']);
       rows.push(['Trained', new Date(p.trained).toLocaleString()]);
