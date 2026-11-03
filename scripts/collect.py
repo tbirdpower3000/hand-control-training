@@ -44,7 +44,7 @@ for n, ok in CHOICES.items():
 meas = p.get('measured') or {}
 if not isinstance(meas, dict):
     fail('measurements malformed')
-for n in ('wobble', 'open', 'closed', 'tries', 'time'):
+for n in ('wobble', 'open', 'closed', 'tries', 'time', 'tremorHz', 'noise', 'fastPeak', 'fastLag', 'fastOver', 'fastSettle'):
     v = meas.get(n)
     if v is not None and (not isinstance(v, (int, float)) or v < 0 or v > 1e6):
         fail(f'{n} out of range')
@@ -61,7 +61,7 @@ rec = {
     'reach': {a: round(float(p['reach'][a]), 3) for a in ('xs', 'ys')} if isinstance(p.get('reach'), dict) and all(isinstance(p['reach'].get(a), (int, float)) for a in ('xs', 'ys')) else None,
     'answers': {n: ans.get(n) for n in CHOICES},
     'ratings': {n: {'score': r['score'], 'auto': bool(r.get('auto')), 'effort': r.get('effort')} for n, r in rat.items()} if isinstance(rat, dict) else None,
-    'measured': {n: (round(float(meas[n]), 4) if isinstance(meas.get(n), (int, float)) else None) for n in ('wobble', 'open', 'closed', 'tries', 'time')},
+    'measured': {n: (round(float(meas[n]), 4) if isinstance(meas.get(n), (int, float)) else None) for n in ('wobble', 'open', 'closed', 'tries', 'time', 'tremorHz', 'noise', 'fastPeak', 'fastLag', 'fastOver', 'fastSettle')},
     'browser': str(p.get('browser', ''))[:12],
     'touch': bool(p.get('touch')),
     'when': str(p.get('when', ''))[:10],
