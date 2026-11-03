@@ -543,9 +543,22 @@
     border-radius: 999px;
     padding: 6px 12px;
   }
-  #camCtl input {
+  #camCtl input[type='range'] {
     width: 110px;
     accent-color: var(--gold);
+  }
+  #camCtl label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #cam {
+    transition:
+      left 0.2s,
+      right 0.2s,
+      top 0.2s,
+      bottom 0.2s,
+      opacity 0.3s;
   }
   #cam.c-off {
     opacity: 0;
@@ -576,10 +589,10 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.9, 3 Nov 2026">v0.9</div>
+<div id="ver" title="Hand control training, version 0.10, 3 Nov 2026">v0.10</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
-<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span></div>
+<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
 <div id="cur" hidden></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
@@ -591,7 +604,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.9 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.10 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1566,29 +1579,46 @@
     }
     // the camera preview dodges: if the cursor or the current target is within 120 px of it, it moves to the corner
     // furthest from both (at most once every 1.2 s, so it never flutters)
-    let camT = 0;
+    let camT = 0,
+      camQ = 'c-tr',
+      camMove = true;
+    try {
+      camMove = localStorage.getItem('trainCamMove') !== '0';
+    } catch (e) {}
+    $('camMove').checked = camMove;
+    $('camMove').onchange = (e) => {
+      camMove = e.target.checked;
+      try {
+        localStorage.setItem('trainCamMove', camMove ? '1' : '0');
+      } catch (e2) {}
+      if (!camMove) {
+        camQ = 'c-tr';
+        $('cam').className = camQ;
+      }
+    };
+    const OPP = { 'c-tl': 'c-br', 'c-tr': 'c-bl', 'c-bl': 'c-tr', 'c-br': 'c-tl' };
     function dodge(f, t) {
-      if (t - camT < 1200) return;
+      if (!camMove || t - camT < 600) return;
       const cam = $('cam'),
-        r = cam.getBoundingClientRect(),
-        near = (x, y) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom)) < 120;
-      const tg = S && S.el ? S.el.getBoundingClientRect() : null,
-        tx = tg ? tg.left + tg.width / 2 : null,
-        ty = tg ? tg.top + tg.height / 2 : null;
-      if (!near(f.x, f.y) && !(tg && near(tx, ty))) return;
-      const W = innerWidth,
-        H = innerHeight,
-        corners = { 'c-tl': [100, 110], 'c-tr': [W - 100, 110], 'c-bl': [100, H - 160], 'c-br': [W - 100, H - 160] };
-      let best = null,
-        bd = -1;
-      Object.entries(corners).forEach(([k, [x, y]]) => {
-        const d = Math.min(Math.hypot(x - f.x, y - f.y), tg ? Math.hypot(x - tx, y - ty) : 1e9);
-        if (d > bd) {
-          bd = d;
-          best = k;
-        }
-      });
-      cam.className = best;
+        r = cam.getBoundingClientRect();
+      if (!r.width) return;
+      // the window's quadrant, grown by a margin: anything entering it is "close"
+      const m = 90,
+        inside = (x, y) => x > r.left - m && x < r.right + m && y > r.top - m && y < r.bottom + m;
+      const tg = S && S.el ? S.el.getBoundingClientRect() : null;
+      const near = inside(f.x, f.y) || (tg && inside(tg.left + tg.width / 2, tg.top + tg.height / 2));
+      if (!near) return;
+      let q = OPP[camQ];
+      // if the opposite quadrant is where the target is, take a side quadrant instead
+      if (tg) {
+        const W = innerWidth,
+          H = innerHeight,
+          tq = (tg.left + tg.width / 2 < W / 2 ? 'c-' + (tg.top + tg.height / 2 < H / 2 ? 't' : 'b') + 'l' : 'c-' + (tg.top + tg.height / 2 < H / 2 ? 't' : 'b') + 'r');
+        if (q === tq) q = camQ[2] === 't' ? (camQ[3] === 'l' ? 'c-tr' : 'c-tl') : camQ[3] === 'l' ? 'c-br' : 'c-bl';
+        if (q === tq) q = OPP[tq];
+      }
+      camQ = q;
+      cam.className = camQ;
       camT = t;
     }
     function frame(L, t, label) {
