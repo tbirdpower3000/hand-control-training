@@ -516,6 +516,31 @@
       animation: none;
     }
   }
+  table.cmp {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  table.cmp th,
+  table.cmp td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  table.cmp th:first-child {
+    text-align: left;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  table.cmp thead th {
+    color: var(--blue);
+    font-weight: 600;
+  }
+  button.warnbtn {
+    border-color: var(--bad);
+    color: var(--bad);
+  }
   #share pre {
     margin: 0;
     max-height: 11rem;
@@ -591,7 +616,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.14, 3 Nov 2026">v0.14</div>
+<div id="ver" title="Hand control training, version 0.15, 3 Nov 2026">v0.15</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -610,7 +635,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.14 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.15 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -690,6 +715,16 @@
     <button type="button" id="reset">Reset to defaults</button>
   </div>
   <p class="muted" id="doneMsg"></p>
+</section>
+
+<section class="card" id="compare" hidden>
+  <h2>Right and left compared</h2>
+  <p class="muted">Private: kept in this browser only and never included when you share results.</p>
+  <div id="cmpBody"></div>
+  <div class="row">
+    <button type="button" id="cmpBack">← Back</button>
+    <button type="button" id="cmpClear">Delete history</button>
+  </div>
 </section>
 
 <section class="card" id="share" hidden>
@@ -1411,6 +1446,116 @@
       askPinch = f.pinch;
     }
 
+    // ---- private history: one line per hand per session, kept in this browser only and never included when sharing
+    const HKEY = 'trainHistory';
+    function history() {
+      try {
+        return JSON.parse(localStorage.getItem(HKEY) || '[]');
+      } catch (e) {
+        return [];
+      }
+    }
+    function logSession(hand, res) {
+      const rat = R.ratings || {},
+        ease = Object.values(rat).filter((r) => !r.auto).map((r) => r.score),
+        hits = res.length,
+        misses = res.reduce((a, c) => a + c.misses, 0),
+        over = res.reduce((a, c) => a + Math.max(0, c.arrivals - 1), 0),
+        firstTry = Object.keys(rat).filter((k) => !redo[k]).length;
+      const h = history();
+      h.push({
+        t: new Date().toISOString(),
+        hand,
+        // completion: presses that landed on the button, and steps done without being redone
+        accuracy: hits / Math.max(1, hits + misses),
+        stepsFirstTime: firstTry,
+        steps: Object.keys(rat).length,
+        // effort: the 1–7 "how easy" answers (7 = no effort) and the measured work per target
+        ease: ease.length ? ease.reduce((a, b) => a + b, 0) / ease.length : null,
+        easeBy: Object.fromEntries(Object.entries(rat).map(([k, r]) => [k, r.score])),
+        timeMs: median(res.map((c) => c.time)),
+        overshoots: over / Math.max(1, hits),
+        wobble: R.wobble ?? null,
+        reachArea: R.reach ? +(R.reach.xs * R.reach.ys).toFixed(3) : null,
+      });
+      try {
+        localStorage.setItem(HKEY, JSON.stringify(h.slice(-200)));
+      } catch (e) {}
+    }
+    // ---- the hidden comparison: right against left over time. Open it by adding #compare to the address, or press C three
+    // times on the first card or the summary. Nothing here is shown in the normal flow or shared.
+    function showCompare() {
+      const h = history(),
+        by = { Right: h.filter((x) => x.hand === 'Right'), Left: h.filter((x) => x.hand === 'Left') };
+      const avg = (a, f) => {
+        const v = a.map(f).filter((x) => x != null && isFinite(x));
+        return v.length ? v.reduce((p, q) => p + q, 0) / v.length : null;
+      };
+      const last = (a, n) => a.slice(-n);
+      const fmt = (v, kind) => (v == null ? '–' : kind === '%' ? Math.round(v * 100) + '%' : kind === 's' ? (v / 1000).toFixed(1) + ' s' : kind === 'x' ? v.toFixed(2) : v.toFixed(1));
+      const rows = [
+        ['Sessions', (a) => a.length, 'n'],
+        ['Press accuracy (completion)', (a) => avg(last(a, 5), (x) => x.accuracy), '%'],
+        ['Steps done first time', (a) => avg(last(a, 5), (x) => x.stepsFirstTime / Math.max(1, x.steps)), '%'],
+        ['How easy, 1–7 (7 = no effort)', (a) => avg(last(a, 5), (x) => x.ease), '1'],
+        ['Time per target', (a) => avg(last(a, 5), (x) => x.timeMs), 's'],
+        ['Overshoots per target', (a) => avg(last(a, 5), (x) => x.overshoots), 'x'],
+        ['Wobble (px)', (a) => avg(last(a, 5), (x) => x.wobble), '1'],
+        ['Comfortable reach (share of view)', (a) => avg(last(a, 5), (x) => x.reachArea), '%'],
+      ];
+      const tbl = rows
+        .map(([label, f, kind]) => {
+          const r = f(by.Right),
+            l = f(by.Left),
+            fr = kind === 'n' ? String(r) : fmt(r, kind),
+            fl = kind === 'n' ? String(l) : fmt(l, kind);
+          return `<tr><th>${label}</th><td>${fr}</td><td>${fl}</td></tr>`;
+        })
+        .join('');
+      // a small trend per hand: "how easy" over the last sessions, as text bars
+      const spark = (a) =>
+        last(a, 12)
+          .map((x) => (x.ease == null ? '·' : '▁▂▃▄▅▆▇'[Math.max(0, Math.min(6, Math.round(x.ease) - 1))]))
+          .join('') || '–';
+      $('cmpBody').innerHTML = `<table class="cmp"><thead><tr><th></th><th>Right hand</th><th>Left hand</th></tr></thead><tbody>${tbl}</tbody></table>
+        <p class="muted">Averages of the last five sessions for each hand. Press accuracy is the share of pinches that landed on the button.</p>
+        <dl><dt>How easy, recent sessions</dt><dd>Right ${spark(by.Right)}<br />Left ${spark(by.Left)}</dd></dl>`;
+      ['intro', 'done', 'share'].forEach((id) => ($(id).hidden = true));
+      $('compare').hidden = false;
+    }
+    $('cmpBack').onclick = () => {
+      $('compare').hidden = true;
+      $(localStorage.getItem(KEY) && step === 'done' ? 'done' : 'intro').hidden = false;
+    };
+    $('cmpClear').onclick = () => {
+      if (!$('cmpClear').classList.contains('warnbtn')) {
+        $('cmpClear').classList.add('warnbtn');
+        $('cmpClear').textContent = 'Delete the history for good?';
+        return setTimeout(() => {
+          $('cmpClear').classList.remove('warnbtn');
+          $('cmpClear').textContent = 'Delete history';
+        }, 4000);
+      }
+      try {
+        localStorage.removeItem(HKEY);
+      } catch (e) {}
+      showCompare();
+    };
+    if (location.hash === '#compare') setTimeout(showCompare, 0);
+    window.addEventListener('hashchange', () => location.hash === '#compare' && showCompare());
+    let cTimes = [];
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'c' && e.key !== 'C') return;
+      if (step && step !== 'done') return;
+      const n = performance.now();
+      cTimes = cTimes.filter((x) => n - x < 1500);
+      cTimes.push(n);
+      if (cTimes.length >= 3) {
+        cTimes = [];
+        showCompare();
+      }
+    });
+
     // ---- the profile: one record per hand, then the next hand or the summary
     function finish() {
       const res = S.res,
@@ -1428,6 +1573,7 @@
         measured: { wobble: R.wobble ?? null, tremorHz: R.tremorHz ?? null, noise: R.noise ?? null, open: R.open ?? null, closed: R.closed ?? null, tries: R.tries ?? null, time: R.time ?? null },
         trained: new Date().toISOString(),
       };
+      logSession(HAND, res);
       const next = PLAN[PLAN.indexOf(HAND) + 1];
       if (next) {
         // the other hand: same exercises again, starting from the answers, with this hand's measurements set aside
