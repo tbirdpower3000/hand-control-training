@@ -893,7 +893,7 @@
         x = m + Math.random() * (innerWidth - 2 * m),
         y = m + 40 + Math.random() * (innerHeight - 2 * m - 120);
       S.el = tgt('pad', x, y, ['Mars', 'Next map', 'Zoom', 'Today', 'Saturn', 'Brighter', 'Titan', 'Pause'][S.n % 8]);
-      S.cur = { t0: performance.now(), arrivals: 0, misses: 0, on: false, wasPinch: false, closest: 1e9 };
+      S.cur = { t0: performance.now(), arrivals: 0, misses: 0, on: false, wasPinch: true, closest: 1e9, onSince: 0, openSince: 0 };
       prompt(`Target ${S.n + 1} of 8: move onto the button and <b>pinch</b> to press it`, 'Take your time. Overshooting and coming back is fine: it tells the atlas how much help to give.');
     }
     function aimFrame(f, t) {
@@ -902,11 +902,32 @@
         c = S.cur;
       c.closest = Math.min(c.closest, d);
       const onIt = d < 6; // no pull here: this measures your own aim
-      if (onIt && !c.on) c.arrivals++;
+      if (onIt && !c.on) {
+        c.arrivals++;
+        c.onSince = t;
+      }
       c.on = onIt;
       S.el.classList.toggle('hot', onIt);
-      if (f.pinch && !c.wasPinch) {
-        if (onIt || d < 12) {
+      const edge = f.x <= 1 || f.y <= 1 || f.x >= innerWidth - 1 || f.y >= innerHeight - 1;
+      S.edgeT = edge ? S.edgeT || t : 0;
+      if (edge && t - S.edgeT > 2500 && !S.redoShown) {
+        S.redoShown = true;
+        prompt('The cursor is stuck at the edge, so the button may be out of reach.', 'Sit as you did for the Reach step, or press Redo reach.');
+        tgt('pad', innerWidth / 2, innerHeight - 110, 'Redo reach').id = 'redoReach';
+      }
+      const rr = document.getElementById('redoReach');
+      if (rr) {
+        const q = rr.getBoundingClientRect(),
+          dr = Math.hypot(Math.max(q.left - f.x, 0, f.x - q.right), Math.max(q.top - f.y, 0, f.y - q.bottom));
+        rr.classList.toggle('hot', dr < 20);
+        if (dr < 20 && f.pinch && !c.wasPinch) return startReach();
+      }
+      // a press only counts when it is deliberate: the hand was open for a moment, the pinch starts fresh (not carried over
+      // from the last step), the cursor has been on the button for a moment, and the button has been up for a moment
+      if (!f.pinch) c.openSince = c.openSince || t;
+      const fresh = f.pinch && !c.wasPinch && c.openSince && t - c.openSince > 250 && t - c.t0 > 400;
+      if (fresh) {
+        if ((onIt && t - c.onSince > 120) || (d < 20 && c.onSince)) {
           c.dist = d;
           c.time = t - c.t0;
           S.res.push(c);
@@ -918,11 +939,16 @@
           setTimeout(() => el.remove(), 250);
           if (S.n < 8) setTimeout(nextPad, 350);
           else setTimeout(() => check('aim'), 400);
-        } else if (d < 120) {
-          c.misses++;
-          SND.miss();
+        } else {
+          if (d < 160) c.misses++;
+          if (t - (S.lastMiss || 0) > 1500) {
+            S.lastMiss = t;
+            SND.miss();
+            prompt(`Target ${S.n + 1} of 8: not quite. Move the cursor <b>onto the button</b>, then pinch.`, 'Open your hand fully between tries. If the cursor can’t get there, press Redo reach below.');
+          }
         }
       }
+      if (f.pinch) c.openSince = 0;
       c.wasPinch = f.pinch;
     }
 
@@ -960,6 +986,8 @@
       $('askQ').textContent = QUESTIONS[which];
       $('ask').hidden = false;
       askT0 = performance.now();
+      askPinch = true;
+      askOpen = 0;
       cancelAnimationFrame(askRaf);
       const tickT = () => {
         if (!asking) return;
@@ -1003,9 +1031,11 @@
     $('scale').innerHTML = [1, 2, 3, 4, 5, 6, 7].map((n) => `<button type="button" data-n="${n}" aria-label="${n} of 7">${n}</button>`).join('');
     $('scale').querySelectorAll('button').forEach((b) => (b.onclick = () => answer(+b.dataset.n)));
     // pinching a number with the hand cursor presses it
-    let askPinch = false;
-    function askFrame(f) {
+    let askPinch = true,
+      askOpen = 0;
+    function askFrame(f, t) {
       let hot = null;
+      if (!f.pinch) askOpen = askOpen || t;
       $('scale')
         .querySelectorAll('button')
         .forEach((b) => {
@@ -1015,7 +1045,8 @@
           b.classList.toggle('hot', on);
           if (on) hot = b;
         });
-      if (f.pinch && !askPinch && hot) hot.click();
+      if (f.pinch && !askPinch && hot && askOpen && t - askOpen > 250 && t - askT0 > 500) hot.click();
+      if (f.pinch) askOpen = 0;
       askPinch = f.pinch;
     }
 
@@ -1188,7 +1219,7 @@
       else if (step === 'pinch') pinchFrame(f, t);
       else if (step === 'still') stillFrame(f, t);
       else if (step === 'aim' && S.el) aimFrame(f, t);
-      else if (step === 'ask') askFrame(f);
+      else if (step === 'ask') askFrame(f, t);
     }
     function loop() {
       requestAnimationFrame(loop);
