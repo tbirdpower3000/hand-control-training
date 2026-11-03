@@ -1,0 +1,47 @@
+name: Collect training results
+
+# When someone shares a training result (an issue labelled training-result), check it, add it to data/results.jsonl,
+# recompute data/defaults.json and close the issue with a note. The issue text is passed to the script as an environment
+# variable, never run as code or inserted into a command.
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: contains(github.event.issue.labels.*.name, 'training-result')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check and store the result
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python -I scripts/collect.py
+      - name: Save the data
+        run: |
+          git config user.name "training-results bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "Training result from issue #${{ github.event.issue.number }}"
+          git push
+      - name: Reply and close
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} --body-file collect_msg.txt
+          gh issue close ${{ github.event.issue.number }}

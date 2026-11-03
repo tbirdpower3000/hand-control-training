@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a problem with the training page
+    url: https://github.com/tbirdpower3000/hand-control-training/issues/new?title=Problem%3A%20
+    about: Say what you expected and what happened. Please don't include video or photos.

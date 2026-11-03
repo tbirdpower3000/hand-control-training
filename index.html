@@ -1,0 +1,1270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Hand Control Training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+  /* a dark training room in the same colours as the atlas's full-screen hand control */
+  :root {
+    --space: #070b14;
+    --ink: #e9eef5;
+    --muted: #9aa8bb;
+    --line: rgba(201, 212, 227, 0.3);
+    --card: rgba(22, 28, 42, 0.92);
+    --gold: #ffd88a;
+    --blue: #7fc8ff;
+    --good: #7dff9a;
+    --bad: #f07a6e;
+    --sans: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    color-scheme: dark;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  /* anything hidden stays hidden, whatever display its styles give it */
+  [hidden] {
+    display: none !important;
+  }
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: var(--space);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+  }
+  body {
+    overflow: hidden;
+  }
+  #room {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 40%, #111a2c 0%, var(--space) 70%);
+  }
+  .card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(36rem, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 22px max(20px, env(safe-area-inset-right, 0px)) 22px max(20px, env(safe-area-inset-left, 0px));
+    display: grid;
+    gap: 12px;
+    z-index: 5;
+  }
+  h1 {
+    margin: 0;
+    font-size: 1.45rem;
+    text-wrap: balance;
+  }
+  h2 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+  p {
+    margin: 0;
+  }
+  .muted {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  ol {
+    margin: 0;
+    padding-left: 1.3em;
+    display: grid;
+    gap: 4px;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  button,
+  .btn {
+    font: 600 1rem var(--sans);
+    min-height: 48px;
+    padding: 10px 18px;
+    border-radius: 12px;
+    background: rgba(22, 28, 42, 0.95);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  button:hover,
+  .btn:hover {
+    border-color: var(--gold);
+  }
+  button.primary {
+    background: #c9d4e3;
+    color: var(--space);
+    border-color: #c9d4e3;
+  }
+  button:focus-visible,
+  .btn:focus-visible {
+    outline: 3px solid var(--blue);
+    outline-offset: 2px;
+  }
+  dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 14px;
+    margin: 0;
+    font-size: 0.92rem;
+  }
+  dt {
+    color: var(--muted);
+  }
+  dd {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+  }
+  /* progress through the four steps */
+  #steps {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    z-index: 6;
+  }
+  #steps span {
+    font-size: 0.8rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    background: rgba(7, 11, 20, 0.7);
+  }
+  #steps span.on {
+    color: var(--space);
+    background: var(--gold);
+    border-color: var(--gold);
+  }
+  #steps span.done {
+    color: var(--good);
+    border-color: rgba(125, 255, 154, 0.5);
+  }
+  #prompt {
+    position: fixed;
+    left: 50%;
+    bottom: max(18px, env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    width: min(40rem, calc(100vw - 32px));
+    text-align: center;
+    font-size: 1.15rem;
+    font-weight: 600;
+    background: rgba(7, 11, 20, 0.8);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px 16px;
+    z-index: 6;
+  }
+  #prompt small {
+    display: block;
+    font-weight: 400;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  /* things to aim at */
+  .tgt {
+    position: fixed;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+  }
+  .corner {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    border: 3px dashed var(--blue);
+    display: grid;
+    place-items: center;
+    color: var(--blue);
+    font-weight: 600;
+  }
+  .corner.got {
+    border-style: solid;
+    border-color: var(--good);
+    background: rgba(125, 255, 154, 0.12);
+  }
+  .dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 0 10px rgba(255, 216, 138, 0.18);
+  }
+  .pad {
+    min-width: 96px;
+    min-height: 58px;
+    padding: 10px 18px;
+    border-radius: 12px;
+    background: rgba(22, 28, 42, 0.95);
+    border: 1px solid rgba(201, 212, 227, 0.5);
+    font-weight: 600;
+    display: grid;
+    place-items: center;
+  }
+  .pad.hot {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(255, 216, 138, 0.35);
+  }
+  .pad.hit {
+    border-color: var(--good);
+    background: rgba(125, 255, 154, 0.16);
+  }
+  /* the hand cursor, as in the atlas: the gold ring fills as the fingers close */
+  #cur {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 8;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55);
+  }
+  #cur::after {
+    content: '';
+    position: absolute;
+    inset: -9px;
+    border-radius: 50%;
+    background: conic-gradient(var(--gold) calc(var(--p, 0) * 1turn), rgba(255, 255, 255, 0.12) 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  }
+  #cur.pinch {
+    background: var(--gold);
+  }
+  #cam {
+    position: fixed;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    top: max(12px, env(safe-area-inset-top, 0px));
+    width: 180px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    z-index: 7;
+    transform: scaleX(-1);
+  }
+  #cam video,
+  #cam canvas {
+    display: block;
+    width: 100%;
+  }
+  #cam canvas {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+  }
+  .err {
+    color: var(--bad);
+  }
+  fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  legend {
+    font-weight: 600;
+    padding: 0;
+    margin-bottom: 4px;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .chips label {
+    cursor: pointer;
+  }
+  .chips input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .chips span {
+    display: inline-block;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    font-size: 0.92rem;
+  }
+  .chips input:checked + span {
+    background: #c9d4e3;
+    color: var(--space);
+    border-color: #c9d4e3;
+  }
+  .chips input:focus-visible + span {
+    outline: 3px solid var(--blue);
+    outline-offset: 2px;
+  }
+  /* after each step: did that work? answer by voice or by pinching a button */
+  #ask {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9;
+    width: min(30rem, calc(100vw - 32px));
+    background: var(--card);
+    border: 1px solid var(--gold);
+    border-radius: 16px;
+    padding: 18px 20px;
+    display: grid;
+    gap: 12px;
+    text-align: center;
+  }
+  #ask .row {
+    justify-content: center;
+  }
+  #ask button {
+    min-width: 8rem;
+    min-height: 64px;
+    font-size: 1.1rem;
+  }
+  #ask button.hot {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(255, 216, 138, 0.35);
+  }
+  /* the 1–7 scale: big round buttons the hand cursor can pinch */
+  #scale {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  #scale button {
+    min-width: 56px;
+    width: 56px;
+    height: 56px;
+    min-height: 56px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    font-size: 1.15rem;
+  }
+  #scale button.hot {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(255, 216, 138, 0.35);
+    transform: scale(1.12);
+  }
+  .ends {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 0 4px;
+  }
+  #askTimer {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+  }
+  #askTimer i {
+    display: block;
+    height: 100%;
+    width: 100%;
+    background: var(--gold);
+    transform-origin: left;
+    transform: scaleX(var(--k, 1));
+  }
+  /* cursor themes: the ring, a neon rave hand, a chubby baby hand */
+  #cur.theme-rave,
+  #cur.theme-baby {
+    width: 56px;
+    height: 56px;
+    border: 0;
+    box-shadow: none;
+    background: none !important;
+    display: grid;
+    place-items: center;
+    font-size: 40px;
+    line-height: 1;
+  }
+  #cur.theme-rave::after,
+  #cur.theme-baby::after {
+    inset: -6px;
+  }
+  #cur.theme-rave {
+    filter: drop-shadow(0 0 6px #ff3df2) drop-shadow(0 0 14px #35f0ff);
+    animation: rave 0.9s linear infinite;
+  }
+  #cur.theme-rave.pinch {
+    animation-duration: 0.25s;
+  }
+  @keyframes rave {
+    0% {
+      filter: drop-shadow(0 0 6px #ff3df2) drop-shadow(0 0 14px #35f0ff);
+    }
+    33% {
+      filter: drop-shadow(0 0 6px #35f0ff) drop-shadow(0 0 14px #b4ff3d);
+    }
+    66% {
+      filter: drop-shadow(0 0 6px #b4ff3d) drop-shadow(0 0 14px #ff3df2);
+    }
+    100% {
+      filter: drop-shadow(0 0 6px #ff3df2) drop-shadow(0 0 14px #35f0ff);
+    }
+  }
+  #cur.theme-baby {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+    font-size: 44px;
+  }
+  #cur.theme-baby.pinch {
+    transform: translate(-50%, -50%) scale(0.85) rotate(-12deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #cur.theme-rave {
+      animation: none;
+    }
+  }
+  #share pre {
+    margin: 0;
+    max-height: 11rem;
+    overflow: auto;
+    font: 0.74rem/1.4 var(--mono);
+    background: rgba(7, 11, 20, 0.7);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: left;
+  }
+  .warnbox {
+    border: 1px solid rgba(255, 216, 138, 0.5);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.88rem;
+    display: grid;
+    gap: 4px;
+  }
+  .warnbox b {
+    color: var(--gold);
+  }
+  @media (max-width: 600px) {
+    #cam {
+      width: 110px;
+    }
+    #steps span {
+      font-size: 0.72rem;
+      padding: 3px 7px;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="room" aria-hidden="true"></div>
+<div id="steps" hidden><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
+<div id="cam" hidden><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
+<div id="cur" hidden></div>
+<div id="prompt" role="status" aria-live="polite" hidden></div>
+<div id="ask" role="dialog" aria-labelledby="askQ" hidden>
+  <p id="askQ"></p>
+  <div id="scale" role="group" aria-label="Rate it from 1 to 7"></div>
+  <div class="ends"><span>1 · not at all</span><span>7 · perfectly</span></div>
+  <div id="askTimer" aria-hidden="true"><i></i></div>
+  <p class="muted" id="askNote">Pinch or click a number. If you don’t, it carries on by itself in a few seconds using what it measured.</p>
+</div>
+
+<section class="card" id="intro">
+  <h1>Hand control training</h1>
+  <p>
+    About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
+    whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
+  </p>
+  <ol>
+    <li><b>Reach:</b> move your open hand to four comfortable corners.</li>
+    <li><b>Pinch:</b> open your hand, then pinch thumb to index finger, a few times.</li>
+    <li><b>Hold still:</b> keep the cursor on a dot for three seconds.</li>
+    <li><b>Targets:</b> press eight buttons as they appear.</li>
+  </ol>
+  <fieldset>
+    <legend>Which hand will you use?</legend>
+    <div class="chips">
+      <label><input type="radio" name="hand" value="right" checked /><span>Right</span></label>
+      <label><input type="radio" name="hand" value="left" /><span>Left</span></label>
+      <label><input type="radio" name="hand" value="either" /><span>Either</span></label>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>How steady is your hand?</legend>
+    <div class="chips">
+      <label><input type="radio" name="steady" value="steady" checked /><span>Steady</span></label>
+      <label><input type="radio" name="steady" value="some" /><span>A little shaky</span></label>
+      <label><input type="radio" name="steady" value="shaky" /><span>Very shaky</span></label>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Where do you sit from the camera?</legend>
+    <div class="chips">
+      <label><input type="radio" name="sit" value="close" /><span>Close (under 60 cm)</span></label>
+      <label><input type="radio" name="sit" value="arm" checked /><span>About an arm's length</span></label>
+      <label><input type="radio" name="sit" value="far" /><span>Further back (over 1.5 m)</span></label>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Cursor</legend>
+    <div class="chips">
+      <label><input type="radio" name="theme" value="ring" checked /><span>◯ Ring</span></label>
+      <label><input type="radio" name="theme" value="rave" /><span>🖐 Rave hand</span></label>
+      <label><input type="radio" name="theme" value="baby" /><span>🖐🏼 Baby hand</span></label>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Sounds</legend>
+    <div class="chips">
+      <label><input type="radio" name="snd" value="on" checked /><span>🔊 On</span></label>
+      <label><input type="radio" name="snd" value="off" /><span>🔇 Off</span></label>
+    </div>
+  </fieldset>
+  <p class="muted">
+    After each step you can rate how it went from 1 to 7, or let it carry on by itself. Sit where you'll use the atlas.
+  </p>
+  <div class="warnbox">
+    <b>Before you start</b>
+    <span>The camera picture is processed on this computer by the hand-tracking library and never leaves it. No video or photos are saved.</span>
+    <span>Your profile (a few numbers) is saved in this browser only, where the atlas picks it up. Sharing it with the project at the end is optional and needs a GitHub account.</span>
+    <span>This is an educational tool for adjusting a game-like control. It is not a medical test and does not measure or diagnose anything about your health or motor skills.</span>
+  </div>
+  <div class="row">
+    <button type="button" class="primary" id="go">✋ Start training</button>
+    <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">← Back to the atlas</a>
+  </div>
+  <p class="muted" id="introMsg"></p>
+</section>
+
+<section class="card" id="done" hidden>
+  <h2>Your hand-control profile</h2>
+  <dl id="sum"></dl>
+  <p class="muted">Saved in this browser. The atlas uses it the next time you start hand control, and 🎯 Adaptive aim keeps fine-tuning it as you go.</p>
+  <div class="row">
+    <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">← Back to the atlas</a>
+    <button type="button" id="again">Train again</button>
+    <button type="button" id="dl">⤓ Download profile</button>
+    <button type="button" id="shareBtn">Share results with the project</button>
+    <button type="button" id="reset">Reset to defaults</button>
+  </div>
+  <p class="muted" id="doneMsg"></p>
+</section>
+
+<section class="card" id="share" hidden>
+  <h2>Share your results?</h2>
+  <p>
+    Shared results help the atlas choose better starting settings for everyone, especially people who find hand control hard. A bot
+    in the project combines them into shared defaults.
+  </p>
+  <div class="warnbox">
+    <b>What is sent, and where</b>
+    <span>Only the numbers below: measurements, your answers, your ratings, and a browser type. No video, pictures, names or email addresses.</span>
+    <span>It is posted as a <b>public issue</b> on the project's GitHub page under your GitHub account, so your GitHub username will be attached to it and anyone can read it. You need a GitHub account (13 or older), and you press the final Submit button on GitHub yourself.</span>
+    <span>Students under 13, or anyone at a school, should check with a teacher or parent first. If you'd rather not, just go back: nothing is sent unless you submit the issue.</span>
+  </div>
+  <pre id="payload"></pre>
+  <div class="row">
+    <button type="button" class="primary" id="shareGo">Open the GitHub form →</button>
+    <button type="button" id="shareBack">No thanks</button>
+  </div>
+  <p class="muted" id="shareMsg"></p>
+</section>
+
+<script>
+  (() => {
+    const $ = (id) => document.getElementById(id);
+    const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+    const KEY = 'atlasHandAssist',
+      FORMAT = 'planetary-atlas-hand-profile';
+    const BASE = { snap: 28, minCut: 0.8, beta: 3, pOn: 0.3, pOff: 0.48 },
+      BASE_REACH = { x0: 0.22, xs: 0.56, y0: 0.18, ys: 0.52 },
+      BASE_REACH_NOW = Object.assign({}, BASE_REACH); // the default box, adjusted by your answers
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0));
+    const median = (a) => {
+      const b = [...a].sort((x, y) => x - y);
+      return b.length ? b[Math.floor(b.length / 2)] : NaN;
+    };
+
+    // the same smoothing and features as the atlas, so what's measured here is what the atlas will see
+    class OneEuro {
+      constructor(minCut, beta) {
+        this.minCut = minCut;
+        this.beta = beta;
+        this.x = null;
+        this.dx = 0;
+        this.t = null;
+      }
+      a(c, dt) {
+        const r = 2 * Math.PI * c * dt;
+        return r / (r + 1);
+      }
+      f(v, t) {
+        if (this.x === null) {
+          this.x = v;
+          this.t = t;
+          return v;
+        }
+        const dt = Math.max(1e-3, (t - this.t) / 1000);
+        this.t = t;
+        this.dx += this.a(1, dt) * ((v - this.x) / dt - this.dx);
+        this.x += this.a(this.minCut + this.beta * Math.abs(this.dx), dt) * (v - this.x);
+        return this.x;
+      }
+    }
+    const fx = new OneEuro(BASE.minCut, BASE.beta),
+      fy = new OneEuro(BASE.minCut, BASE.beta),
+      fp = new OneEuro(3, 1);
+    let reach = Object.assign({}, BASE_REACH),
+      pOn = BASE.pOn,
+      pOff = BASE.pOff,
+      pinchOn = false;
+    // a hand frame: the palm point (mirrored, as you see yourself), the pinch ratio, and the cursor on screen
+    function feat(L, t) {
+      const ax = (L[0].x + L[5].x + L[9].x + L[13].x + L[17].x) / 5,
+        ay = (L[0].y + L[5].y + L[9].y + L[13].y + L[17].y) / 5;
+      const pr = fp.f(d3(L[4], L[8]) / (d3(L[0], L[9]) || 1e-3), t);
+      if (pinchOn ? pr > pOff : pr < pOn) pinchOn = !pinchOn;
+      const gx = fx.f(ax, t),
+        gy = fy.f(ay, t),
+        mx = 1 - gx;
+      return {
+        mx,
+        my: gy,
+        pr,
+        pinch: pinchOn,
+        x: clamp((mx - reach.x0) / reach.xs, 0, 1) * innerWidth,
+        y: clamp((gy - reach.y0) / reach.ys, 0, 1) * innerHeight,
+      };
+    }
+
+    // ---- cursor theme and sounds, chosen on the first card
+    const THEME = { ring: '', rave: '🖐', baby: '🖐🏼' };
+    let theme = 'ring',
+      sndOn = true,
+      ac = null;
+    function setTheme(t) {
+      theme = THEME[t] != null ? t : 'ring';
+      const c = $('cur');
+      c.className = c.className.replace(/\btheme-\w+/g, '').trim();
+      if (theme !== 'ring') c.classList.add('theme-' + theme);
+      c.textContent = THEME[theme];
+    }
+    // soft marimba-like notes, all made here; nothing recorded
+    function note(f, at, vol, dur) {
+      if (!sndOn) return;
+      if (!ac) {
+        try {
+          ac = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+          return;
+        }
+      }
+      if (ac.state === 'suspended') ac.resume();
+      const t = ac.currentTime + (at || 0);
+      [
+        [1, 1, dur || 0.45],
+        [2, 0.22, (dur || 0.45) * 0.5],
+        [3.99, 0.06, 0.12],
+      ].forEach(([m, a, d]) => {
+        const o = ac.createOscillator(),
+          g = ac.createGain();
+        o.type = m === 1 ? 'triangle' : 'sine';
+        o.frequency.value = f * m;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime((vol || 0.09) * a, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        o.connect(g).connect(ac.destination);
+        o.start(t);
+        o.stop(t + d + 0.05);
+      });
+    }
+    const SND = {
+      tap: () => note(1318.5, 0, 0.07, 0.18), // a press
+      got: () => {
+        note(783.99, 0, 0.08, 0.35);
+        note(1046.5, 0.08, 0.07, 0.5);
+      }, // a target or corner done
+      step: () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => note(f, i * 0.09, 0.07, 0.8)), // a step finished
+      miss: () => note(392, 0, 0.05, 0.3), // a press beside the target
+      finish: () => [523.25, 659.25, 783.99, 880, 1046.5, 1318.5].forEach((f, i) => note(f, i * 0.1, 0.08, 1.2)),
+      rate: (n) => note(523.25 * Math.pow(2, (n - 1) / 6), 0, 0.07, 0.35), // the scale sings up from 1 to 7
+    };
+    const R = {}; // what the exercises measure
+    let step = null,
+      S = {}; // the current exercise's state
+    const prompt = (h, sm) => {
+      $('prompt').hidden = false;
+      $('prompt').innerHTML = h + (sm ? `<small>${sm}</small>` : '');
+    };
+    const clearTargets = () => document.querySelectorAll('.tgt').forEach((e) => e.remove());
+    function mark(s) {
+      $('steps').hidden = false;
+      document.querySelectorAll('#steps span').forEach((e) => {
+        const order = ['reach', 'pinch', 'still', 'aim'];
+        e.className = e.dataset.s === s ? 'on' : order.indexOf(e.dataset.s) < order.indexOf(s) ? 'done' : '';
+      });
+    }
+    function tgt(cls, x, y, html) {
+      const e = document.createElement('div');
+      e.className = 'tgt ' + cls;
+      e.style.left = x + 'px';
+      e.style.top = y + 'px';
+      e.innerHTML = html || '';
+      document.body.appendChild(e);
+      return e;
+    }
+
+    // ---- 1. reach: hold an open hand still at each corner of a comfortable area
+    const CORNERS = [
+      ['top left', 0.12, 0.16],
+      ['top right', 0.88, 0.16],
+      ['bottom right', 0.88, 0.84],
+      ['bottom left', 0.12, 0.84],
+    ];
+    function startReach() {
+      step = 'reach';
+      mark('reach');
+      clearTargets();
+      reach = Object.assign({}, BASE_REACH_NOW);
+      S = { i: 0, pts: [], hold: [], el: null };
+      nextCorner();
+    }
+    function nextCorner() {
+      const [name, fxp, fyp] = CORNERS[S.i];
+      if (S.el) S.el.classList.add('got');
+      S.el = tgt('corner', fxp * innerWidth, fyp * innerHeight, S.i + 1);
+      S.hold = [];
+      prompt(`Move your open hand to the <b>${name}</b> of where it's comfortable, and hold it there`, 'Stretch only as far as feels easy. The cursor may not reach the circle yet: that is what this step fixes.');
+    }
+    function reachFrame(f, t) {
+      if (f.pinch) return;
+      S.hold.push([t, f.mx, f.my]);
+      while (S.hold.length && t - S.hold[0][0] > 1200) S.hold.shift();
+      if (S.hold.length < 12 || t - S.hold[0][0] < 1100) return;
+      const xs = S.hold.map((h) => h[1]),
+        ys = S.hold.map((h) => h[2]);
+      const spread = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      if (spread > 0.03) return; // still moving
+      S.pts.push([median(xs), median(ys)]);
+      S.i++;
+      if (S.i < CORNERS.length) {
+        SND.got();
+        return nextCorner();
+      }
+      // map the comfortable box (with a small margin) onto the whole screen
+      const px = S.pts.map((p) => p[0]),
+        py = S.pts.map((p) => p[1]);
+      let x0 = (px[0] + px[3]) / 2,
+        x1 = (px[1] + px[2]) / 2,
+        y0 = (py[0] + py[1]) / 2,
+        y1 = (py[2] + py[3]) / 2;
+      const mxg = (x1 - x0) * 0.06,
+        myg = (y1 - y0) * 0.06;
+      x0 -= mxg;
+      x1 += mxg;
+      y0 -= myg;
+      y1 += myg;
+      if (x1 - x0 < 0.15 || y1 - y0 < 0.12) {
+        // too small to trust (the hand barely moved): keep the default and say so
+        R.reach = Object.assign({}, BASE_REACH_NOW);
+        R.reachNote = 'set from your answers (the corners were too close together to measure)';
+      } else {
+        R.reach = { x0: clamp(x0, 0, 0.6), xs: clamp(x1 - x0, 0.15, 1), y0: clamp(y0, 0, 0.6), ys: clamp(y1 - y0, 0.12, 1) };
+        reach = R.reach;
+      }
+      S.el.classList.add('got');
+      SND.got();
+      setTimeout(() => check('reach'), 500);
+    }
+
+    // ---- 2. pinch: three rounds of open hand, then firm pinch
+    function startPinch() {
+      step = 'pinch';
+      mark('pinch');
+      clearTargets();
+      S = { round: 0, phase: 'open', t0: null, open: [], closed: [] };
+      pinchPrompt();
+    }
+    function pinchPrompt() {
+      prompt(
+        S.phase === 'open' ? `Round ${S.round + 1} of 3: <b>open your hand</b> and hold` : `Round ${S.round + 1} of 3: <b>pinch</b> thumb to index finger, firmly, and hold`,
+        'Hold each for about a second.',
+      );
+    }
+    function pinchFrame(f, t) {
+      const raw = f.pr;
+      if (S.t0 === null) S.t0 = t;
+      $('cur').style.setProperty('--p', clamp((0.75 - raw) / 0.45, 0, 1));
+      const ok = S.phase === 'open' ? raw > 0.55 : raw < 0.4;
+      if (!ok) {
+        S.t0 = t;
+        S.buf = [];
+        return;
+      }
+      (S.buf = S.buf || []).push(raw);
+      if (t - S.t0 < 1000) return;
+      (S.phase === 'open' ? S.open : S.closed).push(median(S.buf));
+      SND.tap();
+      S.buf = [];
+      S.t0 = null;
+      if (S.phase === 'open') S.phase = 'closed';
+      else {
+        S.phase = 'open';
+        S.round++;
+      }
+      if (S.round < 3) return pinchPrompt();
+      const o = median(S.open),
+        c = median(S.closed),
+        g = o - c;
+      R.open = o;
+      R.closed = c;
+      // pinch switches on a quarter of the way up from your firm pinch, and off nearly half way: a steady gap for your hand
+      pOn = clamp(c + 0.25 * g, 0.15, 0.45);
+      pOff = clamp(Math.max(pOn + 0.12, c + 0.5 * g), 0.3, 0.7);
+      R.pOn = pOn;
+      R.pOff = pOff;
+      setTimeout(() => check('pinch'), 400);
+    }
+
+    // ---- 3. hold still: measure the cursor's natural wobble
+    function startStill() {
+      step = 'still';
+      mark('still');
+      clearTargets();
+      const x = innerWidth / 2,
+        y = innerHeight / 2;
+      S = { el: tgt('dot', x, y), x, y, on: [], t0: null };
+      prompt('Put the cursor on the <b>gold dot</b> and keep it there', 'Relax your hand. This measures how much it naturally wobbles.');
+    }
+    function stillFrame(f, t) {
+      const d = Math.hypot(f.x - S.x, f.y - S.y);
+      if (d > 90 || f.pinch) {
+        S.on = [];
+        S.t0 = null;
+        return;
+      }
+      if (S.t0 === null) S.t0 = t;
+      S.on.push([f.x, f.y]);
+      if (t - S.t0 < 3000) return;
+      const mx = S.on.reduce((a, p) => a + p[0], 0) / S.on.length,
+        my = S.on.reduce((a, p) => a + p[1], 0) / S.on.length;
+      const rms = Math.sqrt(S.on.reduce((a, p) => a + (p[0] - mx) ** 2 + (p[1] - my) ** 2, 0) / S.on.length);
+      R.wobble = rms;
+      // more wobble: stronger smoothing; never lighter than what your answer asked for
+      R.minCut = Math.min(R.prior.minCut, rms < 3 ? 0.8 : rms < 6 ? 0.55 : rms < 10 ? 0.4 : 0.28);
+      R.beta = Math.min(R.prior.beta, rms < 3 ? 3 : rms < 6 ? 2.2 : rms < 10 ? 1.6 : 1.1);
+      fx.minCut = fy.minCut = R.minCut;
+      fx.beta = fy.beta = R.beta;
+      S.el.remove();
+      step = 'feel'; // measured: now just let them try it
+      prompt('Now move the cursor around a little.', 'Does it feel smooth and keep up with your hand?');
+      setTimeout(() => check('still'), 2500);
+    }
+
+    // ---- 4. targets: press eight buttons as they appear, the way the atlas's top-bar buttons are pressed
+    function startAim() {
+      step = 'aim';
+      mark('aim');
+      clearTargets();
+      S = { n: 0, res: [], el: null };
+      nextPad();
+    }
+    function nextPad() {
+      if (S.el) S.el.remove();
+      const m = 90,
+        x = m + Math.random() * (innerWidth - 2 * m),
+        y = m + 40 + Math.random() * (innerHeight - 2 * m - 120);
+      S.el = tgt('pad', x, y, ['Mars', 'Next map', 'Zoom', 'Today', 'Saturn', 'Brighter', 'Titan', 'Pause'][S.n % 8]);
+      S.cur = { t0: performance.now(), arrivals: 0, misses: 0, on: false, wasPinch: false, closest: 1e9 };
+      prompt(`Target ${S.n + 1} of 8: move onto the button and <b>pinch</b> to press it`, 'Take your time. Overshooting and coming back is fine: it tells the atlas how much help to give.');
+    }
+    function aimFrame(f, t) {
+      const r = S.el.getBoundingClientRect(),
+        d = Math.hypot(Math.max(r.left - f.x, 0, f.x - r.right), Math.max(r.top - f.y, 0, f.y - r.bottom)),
+        c = S.cur;
+      c.closest = Math.min(c.closest, d);
+      const onIt = d < 6; // no pull here: this measures your own aim
+      if (onIt && !c.on) c.arrivals++;
+      c.on = onIt;
+      S.el.classList.toggle('hot', onIt);
+      if (f.pinch && !c.wasPinch) {
+        if (onIt || d < 12) {
+          c.dist = d;
+          c.time = t - c.t0;
+          S.res.push(c);
+          SND.got();
+          S.el.classList.add('hit');
+          S.n++;
+          const el = S.el;
+          S.el = null;
+          setTimeout(() => el.remove(), 250);
+          if (S.n < 8) setTimeout(nextPad, 350);
+          else setTimeout(() => check('aim'), 400);
+        } else if (d < 120) {
+          c.misses++;
+          SND.miss();
+        }
+      }
+      c.wasPinch = f.pinch;
+    }
+
+    // ---- after each step: rate it 1–7 (pinch or click a number), or say nothing and it carries on from what it measured
+    const QUESTIONS = {
+      reach: 'Could the cursor reach all four circles comfortably?',
+      pinch: 'Did the ring fill when you pinched and empty when you opened your hand?',
+      still: 'Does the cursor feel smooth and keep up with your hand?',
+      aim: 'How easy were the buttons to hit?',
+    };
+    const NEXT = { reach: startPinch, pinch: startStill, still: startAim, aim: finish };
+    let asking = null,
+      askT0 = 0,
+      askRaf = 0,
+      redo = {};
+    const AUTO_MS = 7000;
+    // what the measurements say about the step, used when nobody rates it: 1 (bad) to 7 (good)
+    function measured(which) {
+      if (which === 'reach') return R.reach ? 6 : 3;
+      if (which === 'pinch') return R.open != null && R.open - R.closed > 0.35 ? 6 : 3;
+      if (which === 'still') return R.wobble == null ? 5 : R.wobble < 4 ? 7 : R.wobble < 8 ? 5 : 3;
+      if (which === 'aim') {
+        const res = S.res || [],
+          extra = res.reduce((a, c) => a + Math.max(0, c.arrivals - 1) + c.misses, 0) / Math.max(1, res.length);
+        return extra < 0.3 ? 7 : extra < 1 ? 5 : extra < 2 ? 3 : 2;
+      }
+      return 5;
+    }
+    function check(which) {
+      step = 'ask';
+      asking = which;
+      clearTargets();
+      SND.step();
+      $('prompt').hidden = true;
+      $('askQ').textContent = QUESTIONS[which];
+      $('ask').hidden = false;
+      askT0 = performance.now();
+      cancelAnimationFrame(askRaf);
+      const tickT = () => {
+        if (!asking) return;
+        const k = 1 - (performance.now() - askT0) / AUTO_MS;
+        $('askTimer').style.setProperty('--k', Math.max(0, k));
+        if (k <= 0) return answer(null);
+        askRaf = requestAnimationFrame(tickT);
+      };
+      askRaf = requestAnimationFrame(tickT);
+    }
+    function answer(n) {
+      if (!asking) return;
+      const which = asking;
+      asking = null;
+      cancelAnimationFrame(askRaf);
+      $('ask').hidden = true;
+      const auto = n == null,
+        score = auto ? measured(which) : n;
+      (R.ratings = R.ratings || {})[which] = { score, auto };
+      if (!auto) SND.rate(n);
+      if (score >= 4) return NEXT[which]();
+      // a low score: redo the step once, or turn the help up, then move on
+      redo[which] = (redo[which] || 0) + 1;
+      if (which === 'reach') return redo.reach > 1 ? startPinch() : startReach();
+      if (which === 'pinch') return redo.pinch > 1 ? startStill() : startPinch();
+      if (which === 'still') {
+        R.minCut = Math.max(0.25, (R.minCut || BASE.minCut) - 0.15 * (4 - score));
+        R.beta = Math.max(1, (R.beta || BASE.beta) - 0.4 * (4 - score));
+        fx.minCut = fy.minCut = R.minCut;
+        fx.beta = fy.beta = R.beta;
+        if (redo.still > 1) return startAim();
+        prompt('Smoothing turned up. Move the cursor around a little.', 'Then rate it again.');
+        step = 'feel';
+        return setTimeout(() => check('still'), 2500);
+      }
+      if (which === 'aim') {
+        R.snapBoost = (R.snapBoost || 0) + 5 * (4 - score);
+        return finish();
+      }
+    }
+    $('scale').innerHTML = [1, 2, 3, 4, 5, 6, 7].map((n) => `<button type="button" data-n="${n}" aria-label="${n} of 7">${n}</button>`).join('');
+    $('scale').querySelectorAll('button').forEach((b) => (b.onclick = () => answer(+b.dataset.n)));
+    // pinching a number with the hand cursor presses it
+    let askPinch = false;
+    function askFrame(f) {
+      let hot = null;
+      $('scale')
+        .querySelectorAll('button')
+        .forEach((b) => {
+          const r = b.getBoundingClientRect(),
+            d = Math.hypot(Math.max(r.left - f.x, 0, f.x - r.right), Math.max(r.top - f.y, 0, f.y - r.bottom)),
+            on = d < 14;
+          b.classList.toggle('hot', on);
+          if (on) hot = b;
+        });
+      if (f.pinch && !askPinch && hot) hot.click();
+      askPinch = f.pinch;
+    }
+
+    // ---- the profile
+    function finish() {
+      step = 'done';
+      clearTargets();
+      $('steps').hidden = true;
+      $('prompt').hidden = true;
+      $('cur').hidden = true;
+      const res = S.res,
+        extra = res.reduce((a, c) => a + Math.max(0, c.arrivals - 1) + c.misses, 0) / Math.max(1, res.length),
+        time = median(res.map((c) => c.time));
+      // a wider pull onto buttons for every extra try per target, and for more wobble
+      R.snap = Math.round(clamp(Math.max(R.prior.snap, 28 + extra * 9 + Math.max(0, (R.wobble || 0) - 3) * 1.5) + (R.snapBoost || 0), 28, 72));
+      R.tries = extra;
+      R.time = time;
+      SND.finish();
+      const prof = {
+        on: true,
+        k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff },
+        reach: R.reach || null,
+        hand: R.ans && R.ans.hand,
+        answers: R.ans || null,
+        ratings: R.ratings || null,
+        measured: { wobble: R.wobble ?? null, open: R.open ?? null, closed: R.closed ?? null, tries: R.tries ?? null, time: R.time ?? null },
+        theme,
+        trained: new Date().toISOString(),
+      };
+      save(prof);
+      showSummary(prof);
+    }
+    function save(p) {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(p));
+        $('doneMsg').textContent = '';
+      } catch (e) {
+        $('doneMsg').textContent = 'This browser isn’t saving site data (a private window?). Download the profile and open it in the atlas instead.';
+      }
+    }
+    function showSummary(p) {
+      const k = p.k,
+        smooth = k.minCut >= 0.75 ? 'light (your hand is steady)' : k.minCut >= 0.5 ? 'medium' : k.minCut >= 0.35 ? 'strong' : 'very strong';
+      $('sum').innerHTML = [
+        ['Reach', p.reach ? `your comfortable area, ${Math.round(p.reach.xs * 100)} × ${Math.round(p.reach.ys * 100)}% of the camera view` : R.reachNote || 'default'],
+        ['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${R.open ? ` (your open hand ${R.open.toFixed(2)}, firm pinch ${R.closed.toFixed(2)})` : ''}`],
+        ['Smoothing', `${smooth}${R.wobble != null ? `, wobble ${R.wobble.toFixed(1)} px` : ''}`],
+        ['Button pull', `${k.snap} px${R.tries != null ? ` (${R.tries.toFixed(1)} extra tries per target, ${(R.time / 1000).toFixed(1)} s typical)` : ''}`],
+        ['You said', p.answers ? `${p.answers.hand} hand · ${{ steady: 'steady', some: 'a little shaky', shaky: 'very shaky' }[p.answers.steady]} · ${{ close: 'sitting close', arm: 'about an arm’s length away', far: 'sitting further back' }[p.answers.sit]}` : '–'],
+        ['Ratings', p.ratings ? Object.entries(p.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–'],
+        ['Trained', new Date(p.trained).toLocaleString()],
+      ]
+        .map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`)
+        .join('');
+      $('intro').hidden = true;
+      $('done').hidden = false;
+    }
+    $('dl').onclick = () => {
+      let p = null;
+      try {
+        p = JSON.parse(localStorage.getItem(KEY) || 'null');
+      } catch (e) {}
+      if (!p) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(Object.assign({ format: FORMAT, version: 1 }, p), null, 1)], { type: 'application/json' }));
+      a.download = 'atlas-hand-profile.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      $('doneMsg').textContent = 'Saved atlas-hand-profile.json. In another browser, open it with “Open a planet pack” in the atlas.';
+    };
+    // ---- sharing: the numbers only, as a GitHub issue the person submits themselves
+    const REPO = 'tbirdpower3000/hand-control-training';
+    function payload() {
+      let p = null;
+      try {
+        p = JSON.parse(localStorage.getItem(KEY) || 'null');
+      } catch (e) {}
+      if (!p) return null;
+      const ua = navigator.userAgent,
+        browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : 'other';
+      return {
+        format: 'hand-training-result',
+        version: 1,
+        k: p.k,
+        reach: p.reach ? { xs: +p.reach.xs.toFixed(3), ys: +p.reach.ys.toFixed(3) } : null,
+        answers: p.answers,
+        ratings: p.ratings,
+        measured: p.measured,
+        screen: [innerWidth, innerHeight],
+        browser,
+        touch: navigator.maxTouchPoints > 0,
+        when: (p.trained || '').slice(0, 10),
+      };
+    }
+    $('shareBtn').onclick = () => {
+      const p = payload();
+      if (!p) return;
+      $('payload').textContent = JSON.stringify(p, null, 1);
+      $('done').hidden = true;
+      $('share').hidden = false;
+    };
+    $('shareBack').onclick = () => {
+      $('share').hidden = true;
+      $('done').hidden = false;
+    };
+    $('shareGo').onclick = () => {
+      const p = payload();
+      if (!p) return;
+      const body = '```json\n' + JSON.stringify(p) + '\n```';
+      const u = `https://github.com/${REPO}/issues/new?labels=training-result&title=${encodeURIComponent('Training result')}&body=${encodeURIComponent(body)}`;
+      if (u.length > 7500) {
+        $('shareMsg').textContent = 'That result is too long for the form. Download the profile and attach it to a new issue instead.';
+        return;
+      }
+      window.open(u, '_blank', 'noopener');
+      $('shareMsg').textContent = 'The GitHub form opened in a new tab with the numbers filled in. Check them, then press “Submit new issue” there. Nothing is sent until you do.';
+    };
+    $('reset').onclick = () => {
+      try {
+        localStorage.removeItem(KEY);
+      } catch (e) {}
+      $('doneMsg').textContent = 'Back to the defaults. The atlas will start fresh next time.';
+    };
+    $('again').onclick = () => {
+      $('done').hidden = true;
+      begin();
+    };
+
+    // ---- camera and tracking
+    let landmarker = null,
+      lastT = -1;
+    // the answers on the first card: a starting point the exercises then refine
+    const pick = (n) => (document.querySelector(`input[name=${n}]:checked`) || {}).value;
+    const PRIOR = {
+      steady: { steady: { minCut: 0.8, beta: 3, snap: 28 }, some: { minCut: 0.5, beta: 2, snap: 36 }, shaky: { minCut: 0.32, beta: 1.2, snap: 48 } },
+      sit: { close: { xs: 0.62, ys: 0.58, snap: 0 }, arm: { xs: 0.56, ys: 0.52, snap: 0 }, far: { xs: 0.4, ys: 0.38, snap: 8 } },
+      hand: { right: 0.06, left: -0.06, either: 0 }, // where a comfortable box sits, as a shift of its centre in the mirrored view
+    };
+    async function begin() {
+      $('intro').hidden = true;
+      $('cur').hidden = false;
+      R.ans = { hand: pick('hand'), steady: pick('steady'), sit: pick('sit') };
+      setTheme(pick('theme'));
+      sndOn = pick('snd') !== 'off';
+      const st = PRIOR.steady[R.ans.steady] || PRIOR.steady.steady,
+        si = PRIOR.sit[R.ans.sit] || PRIOR.sit.arm,
+        sh = PRIOR.hand[R.ans.hand] || 0;
+      fx.minCut = fy.minCut = st.minCut;
+      fx.beta = fy.beta = st.beta;
+      pOn = BASE.pOn;
+      pOff = BASE.pOff;
+      R.prior = { minCut: st.minCut, beta: st.beta, snap: st.snap + si.snap };
+      BASE_REACH_NOW.xs = si.xs;
+      BASE_REACH_NOW.ys = si.ys;
+      BASE_REACH_NOW.x0 = clamp(0.5 + sh - si.xs / 2, 0, 0.6);
+      BASE_REACH_NOW.y0 = clamp(0.44 - si.ys / 2, 0, 0.6);
+      Object.keys(R).forEach((k) => ['ans', 'prior'].includes(k) || delete R[k]);
+      startReach();
+    }
+    function frame(L, t) {
+      const f = feat(L, t),
+        c = $('cur');
+      c.hidden = false;
+      c.style.left = f.x + 'px';
+      c.style.top = f.y + 'px';
+      c.classList.toggle('pinch', f.pinch);
+      if (step !== 'pinch') c.style.setProperty('--p', clamp((0.75 - f.pr) / 0.45, 0, 1));
+      if (step === 'reach') reachFrame(f, t);
+      else if (step === 'pinch') pinchFrame(f, t);
+      else if (step === 'still') stillFrame(f, t);
+      else if (step === 'aim' && S.el) aimFrame(f, t);
+      else if (step === 'ask') askFrame(f);
+    }
+    function loop() {
+      requestAnimationFrame(loop);
+      const v = $('vid');
+      if (!landmarker || v.readyState < 2 || v.currentTime === lastT) return;
+      lastT = v.currentTime;
+      const now = performance.now(),
+        r = landmarker.detectForVideo(v, now),
+        L = (r.landmarks || [])[0];
+      const cv = $('cv');
+      cv.width = v.videoWidth;
+      cv.height = v.videoHeight;
+      const x = cv.getContext('2d');
+      x.clearRect(0, 0, cv.width, cv.height);
+      if (!L) {
+        $('cur').hidden = true;
+        return;
+      }
+      x.fillStyle = '#06d6a0';
+      L.forEach((p) => {
+        x.beginPath();
+        x.arc(p.x * cv.width, p.y * cv.height, 4, 0, 7);
+        x.fill();
+      });
+      frame(L, now);
+    }
+    $('go').onclick = async () => {
+      const m = $('introMsg');
+      if (window.parent !== window) {
+        m.innerHTML = '<span class="err">The camera is blocked inside this preview. Open this page on the atlas’s GitHub site.</span>';
+        return;
+      }
+      m.textContent = 'Asking for the camera…';
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
+      } catch (e) {
+        m.innerHTML = `<span class="err">The camera couldn’t be opened (${(e && e.name) || 'blocked'}). Allow it for this site and try again.</span>`;
+        return;
+      }
+      const v = $('vid');
+      v.srcObject = stream;
+      await v.play();
+      $('cam').hidden = false;
+      m.textContent = 'Loading hand tracking…';
+      try {
+        const { FilesetResolver, HandLandmarker } = await import(MP + '/vision_bundle.mjs');
+        const fs = await FilesetResolver.forVisionTasks(MP + '/wasm');
+        landmarker = await HandLandmarker.createFromOptions(fs, {
+          baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
+          runningMode: 'VIDEO',
+          numHands: 1,
+        });
+      } catch (e) {
+        m.innerHTML = '<span class="err">Hand tracking couldn’t load. It needs an internet connection the first time.</span>';
+        return;
+      }
+      m.textContent = '';
+      begin();
+      loop();
+    };
+    // a profile saved before shows straight away
+    try {
+      const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (p && p.trained) {
+        showSummary(p);
+        $('done').hidden = true;
+        $('intro').hidden = false;
+        $('introMsg').textContent = `You trained on ${new Date(p.trained).toLocaleString()}. Training again replaces that profile.`;
+      }
+    } catch (e) {}
+    // for testing without a camera: feed hand frames and start the exercises directly
+    window.trainFeed = frame;
+    window.trainBegin = begin;
+    window.trainState = () => ({ step, S, R });
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+{"format":"hand-control-defaults","version":1,"note":"Shared starting settings for hand control, built from results people chose to share from the training page. None shared yet: these are the built-in defaults.","groups":{"all":{"snap":28,"minCut":0.8,"beta":3,"pOn":0.3,"pOff":0.48,"n":0}},"results":0}
