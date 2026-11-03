@@ -576,7 +576,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.7, 3 Nov 2026">v0.7</div>
+<div id="ver" title="Hand control training, version 0.8, 3 Nov 2026">v0.8</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Camera size <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Camera preview size; 0 hides it" /></label><span id="camSizeO">180 px</span></div>
@@ -591,7 +591,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.7 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.8 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -738,6 +738,126 @@
     const fx = new OneEuro(BASE.minCut, BASE.beta),
       fy = new OneEuro(BASE.minCut, BASE.beta),
       fp = new OneEuro(3, 1);
+    // ---- spectral denoising: a sliding-window Fourier analysis of the raw palm position. Every half second it takes the last
+    // 64 samples (about 2 s), removes the trend, and computes the power spectrum with a small DFT. Intentional movement lives
+    // below about 2 Hz; hand tremor and tracking jitter live at 4–12 Hz. The ratio between them sets how hard the 1€ filter
+    // smooths, so a shaky hand or a noisy corner of the picture gets more smoothing and a steady one stays quick.
+    const SPEC = (() => {
+      const N = 64,
+        bx = new Float32Array(N),
+        by = new Float32Array(N),
+        bt = new Float64Array(N);
+      let n = 0,
+        head = 0,
+        lastRun = 0,
+        gain = 1,
+        info = { fs: 0, tremorHz: 0, noise: 0 };
+      // Hann window and a precomputed twiddle table, so each run is cheap (64×32 terms)
+      const win = Float32Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+      const cs = [],
+        sn = [];
+      for (let k = 0; k <= N / 2; k++) {
+        cs.push(Float32Array.from({ length: N }, (_, i) => Math.cos((2 * Math.PI * k * i) / N)));
+        sn.push(Float32Array.from({ length: N }, (_, i) => Math.sin((2 * Math.PI * k * i) / N)));
+      }
+      function spectrum(buf) {
+        // detrend (remove the straight line through the window), window, DFT magnitudes
+        let sx = 0,
+          sy = 0,
+          sxx = 0,
+          sxy = 0;
+        for (let i = 0; i < N; i++) {
+          sx += i;
+          sy += buf[i];
+          sxx += i * i;
+          sxy += i * buf[i];
+        }
+        const b = (N * sxy - sx * sy) / (N * sxx - sx * sx) || 0,
+          a = (sy - b * sx) / N,
+          d = new Float32Array(N);
+        for (let i = 0; i < N; i++) d[i] = (buf[i] - a - b * i) * win[i];
+        const P = new Float32Array(N / 2 + 1);
+        for (let k = 0; k <= N / 2; k++) {
+          let re = 0,
+            im = 0;
+          for (let i = 0; i < N; i++) {
+            re += d[i] * cs[k][i];
+            im -= d[i] * sn[k][i];
+          }
+          P[k] = re * re + im * im;
+        }
+        return P;
+      }
+      function push(x, y, t) {
+        bx[head] = x;
+        by[head] = y;
+        bt[head] = t;
+        head = (head + 1) % N;
+        if (n < N) n++;
+        if (n < N || t - lastRun < 500) return;
+        lastRun = t;
+        // samples in time order, and the sample rate from the window's span
+        const X = new Float32Array(N),
+          Y = new Float32Array(N);
+        for (let i = 0; i < N; i++) {
+          const j = (head + i) % N;
+          X[i] = bx[j];
+          Y[i] = by[j];
+        }
+        const span = (bt[(head + N - 1) % N] - bt[head]) / 1000,
+          fs = span > 0 ? (N - 1) / span : 30,
+          px = spectrum(X),
+          py = spectrum(Y),
+          hz = (k) => (k * fs) / N;
+        let low = 0,
+          high = 0,
+          peak = 0,
+          peakHz = 0;
+        for (let k = 1; k <= N / 2; k++) {
+          const p = px[k] + py[k],
+            f = hz(k);
+          if (f < 2) low += p;
+          else if (f >= 3 && f <= 12) {
+            high += p;
+            if (p > peak) {
+              peak = p;
+              peakHz = f;
+            }
+          }
+        }
+        // noise ratio in [0, 1]: how much of the motion is tremor-band rather than deliberate
+        const noise = high / (high + low + 1e-12);
+        info = { fs: +fs.toFixed(1), tremorHz: +peakHz.toFixed(1), noise: +noise.toFixed(3) };
+        // the filter's cutoff scales down with the noise: all deliberate -> 1, mostly tremor -> about a third
+        const want = 1 - 0.65 * Math.min(1, noise * 1.6);
+        gain += (want - gain) * 0.5;
+      }
+      return {
+        push,
+        get gain() {
+          return gain;
+        },
+        get info() {
+          return info;
+        },
+        reset() {
+          n = 0;
+          head = 0;
+          gain = 1;
+        },
+      };
+    })();
+    // a 3-sample median kills single-frame spikes (a landmark jumping for one frame) before the smoothing
+    const med3 = () => {
+      const q = [];
+      return (v) => {
+        q.push(v);
+        if (q.length > 3) q.shift();
+        return q.length < 3 ? v : [...q].sort((a, b) => a - b)[1];
+      };
+    };
+    const mx3 = med3(),
+      my3 = med3();
     let reach = Object.assign({}, BASE_REACH),
       pOn = BASE.pOn,
       pOff = BASE.pOff,
@@ -748,16 +868,35 @@
         ay = (L[0].y + L[5].y + L[9].y + L[13].y + L[17].y) / 5;
       const pr = fp.f(d3(L[4], L[8]) / (d3(L[0], L[9]) || 1e-3), t);
       if (pinchOn ? pr > pOff : pr < pOn) pinchOn = !pinchOn;
-      const gx = fx.f(ax, t),
-        gy = fy.f(ay, t),
+      SPEC.push(ax, ay, t);
+      // near the edge of the camera picture the tracker loses part of the hand and the landmarks jump, so the cutoff is
+      // lowered there as well (down to a third right at the border)
+      const edge = Math.min(ax, 1 - ax, ay, 1 - ay),
+        edgeGain = edge < 0.08 ? 0.35 + 0.65 * (edge / 0.08) : 1,
+        g = SPEC.gain * edgeGain,
+        base = fx.minCut;
+      fx.minCut = fy.minCut = base * g;
+      const gx = fx.f(mx3(ax), t),
+        gy = fy.f(my3(ay), t),
         mx = 1 - gx;
+      fx.minCut = fy.minCut = base;
+      // the reach box maps to the screen with a soft landing at the edges instead of a hard stop, so the cursor eases into a
+      // corner rather than slamming and jittering against it
+      const soft = (u) => {
+        if (u > 0.04 && u < 0.96) return u;
+        const k = u <= 0.04 ? u / 0.04 : (1 - u) / 0.04,
+          e = Math.max(0, Math.min(1, k)),
+          ease = e * e * (3 - 2 * e);
+        return u <= 0.04 ? 0.04 * ease : 1 - 0.04 * ease;
+      };
       return {
         mx,
         my: gy,
         pr,
         pinch: pinchOn,
-        x: clamp((mx - reach.x0) / reach.xs, 0, 1) * innerWidth,
-        y: clamp((gy - reach.y0) / reach.ys, 0, 1) * innerHeight,
+        noise: SPEC.info.noise,
+        x: soft(clamp((mx - reach.x0) / reach.xs, -0.2, 1.2)) * innerWidth,
+        y: soft(clamp((gy - reach.y0) / reach.ys, -0.2, 1.2)) * innerHeight,
       };
     }
 
@@ -1007,6 +1146,8 @@
         my = S.on.reduce((a, p) => a + p[1], 0) / S.on.length;
       const rms = Math.sqrt(S.on.reduce((a, p) => a + (p[0] - mx) ** 2 + (p[1] - my) ** 2, 0) / S.on.length);
       R.wobble = rms;
+      R.tremorHz = SPEC.info.tremorHz;
+      R.noise = SPEC.info.noise;
       // more wobble: stronger smoothing; never lighter than what your answer asked for
       R.minCut = Math.min(R.prior.minCut, rms < 3 ? 0.8 : rms < 6 ? 0.55 : rms < 10 ? 0.4 : 0.28);
       R.beta = Math.min(R.prior.beta, rms < 3 ? 3 : rms < 6 ? 2.2 : rms < 10 ? 1.6 : 1.1);
@@ -1204,7 +1345,7 @@
         k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff },
         reach: R.reach || null,
         ratings: R.ratings || null,
-        measured: { wobble: R.wobble ?? null, open: R.open ?? null, closed: R.closed ?? null, tries: R.tries ?? null, time: R.time ?? null },
+        measured: { wobble: R.wobble ?? null, tremorHz: R.tremorHz ?? null, noise: R.noise ?? null, open: R.open ?? null, closed: R.closed ?? null, tries: R.tries ?? null, time: R.time ?? null },
         trained: new Date().toISOString(),
       };
       const next = PLAN[PLAN.indexOf(HAND) + 1];
@@ -1261,7 +1402,7 @@
         rows.push([`<span style="color:var(--blue)">${h} hand</span>`, '']);
         rows.push(['Reach', q.reach ? `${Math.round(q.reach.xs * 100)} × ${Math.round(q.reach.ys * 100)}% of the camera view` : 'default']);
         rows.push(['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${m.open != null ? ` (open ${m.open.toFixed(2)}, firm pinch ${m.closed.toFixed(2)})` : ''}`]);
-        rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}`]);
+        rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}${m.tremorHz ? `, tremor band peak ${m.tremorHz} Hz, noise ${Math.round(m.noise * 100)}%` : ''}`]);
         rows.push(['Button pull', `${k.snap} px${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
         rows.push(['Ratings', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–']);
       });
@@ -1366,6 +1507,7 @@
       pOn = BASE.pOn;
       pOff = BASE.pOff;
       pinchOn = false;
+      SPEC.reset();
     }
     async function begin() {
       $('intro').hidden = true;
