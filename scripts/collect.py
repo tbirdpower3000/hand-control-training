@@ -77,6 +77,11 @@ def game_rows(gs):
         o['model'] = mdl[:12] if isinstance(mdl, str) and mdl else None
         ch = g.get('choices')
         o['choices'] = {str(k)[:12]: int(v) for k, v in list(ch.items())[:8] if isinstance(v, (int, float)) and 0 <= v <= 1e6} if isinstance(ch, dict) else None
+        # which features were on this round (short ids), and how often each model and feature was in play (per episode)
+        ft = g.get('features')
+        o['features'] = [str(x)[:12] for x in ft[:12] if isinstance(x, str)] if isinstance(ft, list) else []
+        us = g.get('use')
+        o['use'] = {str(k)[:12]: int(v) for k, v in list(us.items())[:16] if isinstance(v, (int, float)) and 0 <= v <= 1e6} if isinstance(us, dict) else None
         if g['kind'] == 'game':
             for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'tp'):
                 o[n] = num(g.get(n))
