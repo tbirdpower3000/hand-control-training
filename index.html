@@ -2541,6 +2541,10 @@ const FRUIT_SPRITES = (function () {
         ry: clamp((ay - reach.y0) / reach.ys, -0.2, 1.2) * innerHeight,
         x: soft(clamp(mp ? mp.u : (mx - reach.x0) / reach.xs, -0.2, 1.2)) * innerWidth,
         y: soft(clamp(mp ? mp.v : (gy - reach.y0) / reach.ys, -0.2, 1.2)) * innerHeight,
+        // the same mapped point with no edge clamp or soft landing: the fruit game slices along this, so a swipe can leave
+        // the screen and come back and still cut along its true line
+        ux: (mp ? mp.u : (mx - reach.x0) / reach.xs) * innerWidth,
+        uy: (mp ? mp.v : (gy - reach.y0) / reach.ys) * innerHeight,
         map: mp ? mp.used : 'flat',
       });
     }
@@ -5779,8 +5783,10 @@ const FRUIT_SPRITES = (function () {
         if (FG.remeasure || !swipeToday(sw)) fruitWarmStart();
         FG.remeasure = false;
       }
-      showCur(f.x, f.y);
-      const p = { x: f.x, y: f.y, t },
+      showCur(f.x, f.y); // the visible blade tip stays on screen; the slice follows the unclamped path below
+      // the blade and the slice test run on the unclamped mapped point, so a stroke can leave the screen and come back and
+      // still cut fruit along its true line ("slash in and out"). The visible tip is the clamped point above.
+      const p = { x: f.ux != null ? f.ux : f.x, y: f.uy != null ? f.uy : f.y, t },
         prev = FG.prev,
         rx = f.rx != null ? f.rx : f.x,
         ry = f.ry != null ? f.ry : f.y;
