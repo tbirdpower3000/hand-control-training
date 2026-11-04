@@ -756,7 +756,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.29, 4 Nov 2026">v0.29</div>
+<div id="ver" title="Hand control training, version 0.30, 4 Nov 2026">v0.30</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -776,7 +776,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.29 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.30 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1198,6 +1198,7 @@
         pinch: pinchOn,
         prW,
         noise: SPEC.info.noise,
+        fast: mo.fast,
         rx: clamp((1 - ax - reach.x0) / reach.xs, -0.2, 1.2) * innerWidth,
         ry: clamp((ay - reach.y0) / reach.ys, -0.2, 1.2) * innerHeight,
         x: soft(clamp((mx - reach.x0) / reach.xs, -0.2, 1.2)) * innerWidth,
@@ -1861,6 +1862,7 @@
       reset() {
         this.lastCap = null;
         this.lastCapT = 0;
+        this.capHist = []; // [t, key] for the last 400 ms: a press is resolved by a vote over them, centred 180 ms back
         this.p = null;
         this.raw = null;
         this.prev = new Map(); // each item's centre last frame, to carry the cursor with a moving bubble
@@ -1880,7 +1882,9 @@
         return { n: 1 + (nMax - 1) * g, inside: null };
       }
       step(f, items, t, snap, nMax) {
-        nMax = nMax || 2.5;
+        // a fast-moving hand feels the lenses only weakly (down to a fifth), so a button on the way to another one doesn't
+        // bend the cursor off course; a slow approach and the pinch itself get the full strength
+        nMax = 1 + ((nMax || 2.5) - 1) * (1 - 0.8 * Math.max(0, Math.min(1, f.fast || 0)));
         const span = Math.max(36, snap * 1.2);
         this.pr.push([t, f.pr]);
         while (this.pr.length && t - this.pr[0][0] > 150) this.pr.shift();
@@ -1972,9 +1976,32 @@
           this.lastCap = cap.key;
           this.lastCapT = t;
         } else if (closing && this.lastCap) this.lastCapT = t; // while the fingers close, the last target is held for the press
+        this.capHist.push([t, cap ? cap.key : null]);
+        while (this.capHist.length && t - this.capHist[0][0] > 400) this.capHist.shift();
         const recent = cap ? cap.key : this.lastCap && t - this.lastCapT < 150 && items.some((it) => it.key === this.lastCap) ? this.lastCap : null;
         const under = items.find((it) => it.dist(f.x, f.y) <= 0); // the target under the hand itself
         return { x: px, y: py, cap: cap ? cap.key : null, recent, hand: under ? under.key : null, n: fin.n };
+      }
+      // the target a press was meant for: a weighted vote over the captures of the last 400 ms, each weighted by a curve
+      // centred 180 ms before now (the fingers closing drag the cursor, so where it was a moment earlier is what was aimed at)
+      vote(t) {
+        const w = new Map();
+        let total = 0;
+        this.capHist.forEach(([tt, k]) => {
+          const age = t - tt,
+            g = age < 16 ? 0 : 1 / (1 + Math.exp((age - 180) / 40));
+          total += g;
+          if (k) w.set(k, (w.get(k) || 0) + g);
+        });
+        let best = null,
+          bw = 0;
+        w.forEach((v, k) => {
+          if (v > bw) {
+            bw = v;
+            best = k;
+          }
+        });
+        return best && bw >= total / 2 ? best : null;
       }
     }
     const rectItem = (el) => {
@@ -2035,6 +2062,8 @@
     //    press a moment early counts when the cursor arrives while the fingers are still closed (also 150 ms)
     function pressTarget(fp, fresh, f, t, st) {
       if (fresh) {
+        const v = FLD.vote(t);
+        if (v) return v;
         if (fp.recent) return fp.recent;
         st.buf = t;
         return null;
@@ -2157,6 +2186,7 @@
         ['Pop game: time to pop', (a, g) => avg(last(g, 5), (x) => x.reactMs), 's'],
         ['Pop game: small bubbles popped', (a, g) => avg(last(g, 5), (x) => (x.bySize && x.bySize.small && x.bySize.small.n ? x.bySize.small.hit / x.bySize.small.n : null)), '%'],
         ['Pop game: precision (effective width, px)', (a, g) => avg(last(g, 5), (x) => x.effW), 'i'],
+        ['Pop game: throughput (bits/s)', (a, g) => avg(last(g, 5), (x) => x.tp), 'x'],
       ];
       const tbl = rows
         .map(([label, f, kind]) => {
@@ -2618,6 +2648,9 @@
       G.bubbles.splice(G.bubbles.indexOf(b), 1);
       szStat(b.size).hit++;
       if (f) (G.offs = G.offs || []).push([f.x - bx(b), f.y - b.y]); // where the pop landed against the centre
+      // for throughput: how far this pop was from the last one (the move's amplitude) and how long it took
+      if (G.lastPop) (G.moves = G.moves || []).push([Math.hypot(bx(b) - G.lastPop[0], b.y - G.lastPop[1]), Math.max(0.05, (t - G.lastPop[2]) / 1000)]);
+      G.lastPop = [bx(b), b.y, t];
       b.el.classList.add('popped');
       setTimeout(() => b.el.remove(), 200);
       G.pops++;
@@ -2647,6 +2680,15 @@
     // nudged a little toward what the round measured (the pinch thresholds, in the image and in 3D, and the pull onto
     // buttons). Each change is a trial: if the next round with that hand is clearly worse (pinch accuracy down by more than
     // 15%), the change is undone by itself. Only trained hands are tuned. The atlas picks the new settings up as usual.
+    // ISO 9241-9 throughput for the round: effective width from the spread of the pops, IDe = log2(A/We + 1) per move, and
+    // the mean of IDe / time over the moves (bits per second). Speed and precision in one number, so a slower-but-steadier
+    // round doesn't count as an improvement and a faster-but-sloppier one doesn't either.
+    function throughput() {
+      const we = effWidth(),
+        m = G.moves || [];
+      if (!we || m.length < 6) return null;
+      return m.reduce((a, [A, s]) => a + Math.log2(A / we + 1) / s, 0) / m.length;
+    }
     function gameTune(h, acc, presses) {
       let p = null;
       try {
@@ -2658,17 +2700,19 @@
       const sameK = p.k && JSON.stringify(p.k) === JSON.stringify(q.k);
       const T = q.gameTune;
       // 1. judge the last trial
-      if (T && T.pending && presses >= 8 && acc != null) {
-        if (acc < T.acc * 0.85) {
+      // 1. judge the last trial by throughput, once a round has enough pops to tell a real change from chance (20)
+      const tp = throughput();
+      if (T && T.pending && G.pops >= 20 && tp != null && T.tp != null) {
+        if (tp < T.tp * 0.85) {
           q.k = T.before.k;
           q.kW = T.before.kW;
-          out.changes.push(`undid the last change (accuracy ${Math.round(T.acc * 100)}% → ${Math.round(acc * 100)}%)`);
+          out.changes.push(`undid the last change (throughput ${T.tp.toFixed(2)} → ${tp.toFixed(2)} bits/s)`);
           out.reverted = true;
         }
         T.pending = false;
-      }
-      if (out.reverted || presses < 8 || acc == null) {
-        if (presses < 8 && !out.reverted) out.note = 'Not enough pinches this round to tune anything (8 or more needed).';
+      } else if (T && T.pending && tp != null) out.note = `Still judging the last change: ${G.pops} pops this round, 20 needed.`;
+      if (out.reverted || presses < 12 || acc == null || (T && T.pending)) {
+        if (presses < 12 && !out.reverted) out.note = 'Not enough pinches this round to tune anything (12 or more needed).';
         q.gameTune = T || null;
         if (sameK) p.k = q.k;
         saveTune(p);
@@ -2729,7 +2773,7 @@
       }
       q.k = k;
       if (kW) q.kW = kW;
-      q.gameTune = { t: new Date().toISOString(), acc, pending: true, before, rounds: ((T && T.rounds) || 0) + 1 };
+      q.gameTune = { t: new Date().toISOString(), acc, tp, pending: true, before, rounds: ((T && T.rounds) || 0) + 1 };
       if (sameK) p.k = q.k;
       saveTune(p);
       out.undo = () => {
@@ -2794,7 +2838,7 @@
         } catch (e) {}
       }
       const hist = history();
-      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth() });
+      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput() });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -2806,6 +2850,7 @@
         ['Time to pop', react == null ? '–' : `${(react / 1000).toFixed(1)} s typical, from the top of the screen`],
         ['By size', bySizeText()],
         ['Precision', precisionText()],
+        ['Throughput', throughput() != null ? `${throughput().toFixed(2)} bits/s (speed and precision in one number; the game tunes by this)` : '–'],
         ['Best combo', G.bestCombo > 1 ? '×' + G.bestCombo : '–'],
         ['Top speed reached', `level ${G.level + 1} of 13`],
         ['Cursor slide when pinching', G.drift.length ? `${Math.round(median(G.drift))} px typical` : '–'],
@@ -2900,7 +2945,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.29',
+        app: 'v0.30',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -3262,7 +3307,27 @@
     // corners you reached, so reaching down to a bottom corner still counts as working.
     let WAIST = 0.84;
     const palmY = (L) => (L[0].y + L[5].y + L[9].y + L[13].y + L[17].y) / 5;
-    const resting = (h) => palmY(h.L) > WAIST;
+    // resting, with hysteresis: a hand counts as resting after 250 ms below the line, and as working again only once it is
+    // 3% of the picture above the line (or clearly moving up), so a hand parked near the line doesn't flicker in and out
+    const RESTS = {};
+    const resting = (h) => {
+      const y = palmY(h.L),
+        k = h.label || 'x',
+        r = (RESTS[k] = RESTS[k] || { on: false, below: 0, last: y }),
+        now = performance.now(),
+        up = r.last - y > 0.01;
+      r.last = y;
+      if (!r.on) {
+        if (y > WAIST) {
+          r.below = r.below || now;
+          if (now - r.below > 250) r.on = true;
+        } else r.below = 0;
+      } else if (y < WAIST - 0.03 || (y < WAIST && up)) {
+        r.on = false;
+        r.below = 0;
+      }
+      return r.on;
+    };
     function pickHand(all) {
       all = all.filter((h) => !resting(h)); // resting hands don't count at all
       if (!all.length) return null;

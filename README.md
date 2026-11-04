@@ -1,4 +1,4 @@
-# Hand control training (v0.29)
+# Hand control training (v0.30)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -22,6 +22,8 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 - *Speed-based gain*, as on a mouse or console: slow hand movements move the cursor less (down to 45%) for precision, quick ones move it fully; it never strays more than 60 px from your hand.
 - *Forgiving presses*: a pinch up to 150 ms after the cursor slips off a target still counts for it, and a pinch up to 150 ms early counts when you arrive with the fingers still closed. Small bubbles have an invisible hit area bigger than they look (40 px from the centre).
 - *A press you can feel*: the target bounces and a ring bursts from where you pressed.
+
+**Judged by throughput.** The game's tuning is judged by ISO 9241-9 throughput (effective width from the spread of your pops, index of difficulty per move, bits per second), after at least 20 pops, so chance variation can't undo a good change or keep a bad one; a change needs 12 pinches to be made. Presses are resolved by a weighted vote over the last 400 ms of lens captures (centred 180 ms before the pinch), lenses weaken while the hand moves fast, and the rest line has hysteresis.
 
 **🎞 Replay** draws what happened in the last few minutes (targets, prompts, the cursor and its trail, presses, and the tracked hand points with the waist line) so a problem can be watched again. You can download the replay log and send it in, or open one. It holds no camera picture, stays in the tab until you reload, and is never sent anywhere by itself.
 
