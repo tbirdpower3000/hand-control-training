@@ -4,10 +4,10 @@
  "note": "Shared starting settings for hand control, the medians of results people chose to share from the training page. The atlas loads these as its defaults; a personal profile always overrides them.",
  "groups": {
   "all": {
-   "snap": 68.0,
+   "snap": 70.0,
    "minCut": 0.25,
    "beta": 1,
-   "n": 29,
+   "n": 30,
    "n3d": 0
   },
   "shaky": {
@@ -16,7 +16,14 @@
    "beta": 2.1,
    "n": 6,
    "n3d": 0
+  },
+  "steady": {
+   "snap": 72,
+   "minCut": 0.25,
+   "beta": 2.0,
+   "n": 3,
+   "n3d": 0
   }
  },
- "results": 29
+ "results": 30
 }
