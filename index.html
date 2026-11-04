@@ -368,27 +368,53 @@
     white-space: nowrap;
   }
   @media (max-width: 600px) {
-    #gameEnd dl {
+    #gameEnd dl,
+    #carryEnd dl {
       grid-template-columns: 1fr;
     }
-    #gameEnd .row {
+    #gameEnd .row,
+    #carryEnd .row,
+    #share .row {
       position: sticky;
       bottom: 0;
       background: var(--card, #0f1626);
       padding-block: 8px;
     }
   }
-  #gameEnd .row button {
+  #gameEnd .row button,
+  #carryEnd .row button,
+  #share .row button,
+  #shareGamesLbl {
     min-height: 60px;
     font-size: 1.05rem;
     padding-inline: 20px;
   }
-  #gameEnd .row button.hot {
+  #gameEnd .row button.hot,
+  #carryEnd .row button.hot,
+  #share .row button.hot,
+  #shareGamesLbl.hot {
     outline: 3px solid var(--gold);
     outline-offset: 2px;
   }
   #gameHud b {
     color: var(--gold);
+  }
+  #gameHud i {
+    font-style: normal;
+  }
+  #shareGamesLbl {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding-inline: 14px;
+    margin-block: 8px;
+    cursor: pointer;
+  }
+  #shareGamesLbl input {
+    width: 24px;
+    height: 24px;
   }
   /* the replay viewer: a drawing of what happened, from the replay log (no video) */
   #replay {
@@ -455,6 +481,11 @@
     width: 180px;
     opacity: 0.7;
     transition: opacity 0.3s; /* position snaps instantly */
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    z-index: 7;
+    transform: scaleX(-1);
   }
   #cam.c-tl {
     left: max(12px, env(safe-area-inset-left, 0px));
@@ -479,12 +510,6 @@
     bottom: max(92px, env(safe-area-inset-bottom, 0px));
     left: auto;
     top: auto;
-  }
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid var(--line);
-    z-index: 7;
-    transform: scaleX(-1);
   }
   #cam video,
   #cam canvas {
@@ -797,12 +822,12 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.35, 4 Nov 2026">v0.35</div>
+<div id="ver" title="Hand control training, version 0.36, 4 Nov 2026">v0.36</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
 <div id="cur" hidden></div>
-<div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span>Combo <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span>Best <b id="gBest">0</b></span></div>
+<div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span><i id="gComboL">Combo</i> <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span><i id="gBestL">Best</i> <b id="gBest">0</b></span></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
   <p id="askQ"></p>
@@ -817,7 +842,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.35 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.36 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -975,7 +1000,7 @@
     <span>It is posted as a <b>public issue</b> on the project's GitHub page under your GitHub account, so your GitHub username will be attached to it and anyone can read it. You need a GitHub account (13 or older), and you press the final Submit button on GitHub yourself.</span>
     <span>Students under 13, or anyone at a school, should check with a teacher or parent first. If you'd rather not, just go back: nothing is sent unless you submit the issue.</span>
   </div>
-  <label><input type="checkbox" id="shareGames" checked> Include my last game rounds (scores and precision numbers only)</label>
+  <label id="shareGamesLbl"><input type="checkbox" id="shareGames" checked> Include my last game rounds (scores and precision numbers only)</label>
   <pre id="payload"></pre>
   <div class="row">
     <button type="button" class="primary" id="shareGo">Open the GitHub form →</button>
@@ -3465,7 +3490,11 @@
       }
     }
     function startGame() {
-      ['intro', 'done', 'share', 'compare', 'gameEnd'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      $('gComboL').textContent = 'Combo';
+      $('gBestL').textContent = 'Best';
+      clearTimeout(G && G.pt);
+      clearTimeout(C && C.pt);
       setTheme(pick('theme'));
       sndOn = pick('snd') !== 'off';
       clearTargets();
@@ -3950,6 +3979,11 @@
     let C = null;
     function startCarry() {
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      // the HUD's labels for this game, and no prompt timer left over from an earlier round
+      $('gComboL').textContent = '📦 Delivered';
+      $('gBestL').textContent = 'Slips';
+      clearTimeout(G && G.pt);
+      clearTimeout(C && C.pt);
       setTheme(pick('theme'));
       sndOn = pick('snd') !== 'off';
       clearTargets();
@@ -3972,7 +4006,8 @@
     function carryHud() {
       $('gScore').textContent = C.score;
       $('gTime').textContent = Math.ceil(C.left);
-      $('gCombo').textContent = '📦' + C.done.length;
+      $('gCombo').textContent = C.done.length;
+      $('gBest').textContent = C.slips;
     }
     function placeDisc(x, y) {
       if (C.obj) C.obj.el.remove();
@@ -4157,7 +4192,7 @@
       // 1. slips and pinch flickers: the pinch lets go too easily -> widen the on/off gap (off threshold up)
       const slipRate = (C.slips + 0.5 * C.saves) / n;
       if (slipRate > 0.2) {
-        const off = +clamp(k.pOff + Math.min(0.06, 0.03 * Math.round(slipRate * 5)), k.pOn + 0.1, 0.75).toFixed(3);
+        const off = +clamp(k.pOff + Math.min(0.06, 0.03 * Math.round(slipRate * 5)), k.pOn + 0.1, 0.7).toFixed(3);
         if (off !== k.pOff) {
           out.changes.push(`pinch off ${k.pOff.toFixed(2)}→${off.toFixed(2)} (${C.slips} slips, ${C.saves} flickers)`);
           k.pOff = off;
@@ -4180,11 +4215,11 @@
       const eff = d.filter((x) => x.eff != null),
         effM = eff.length ? eff.reduce((a, x) => a + x.eff, 0) / eff.length : null;
       if (effM != null && effM < 0.85) {
-        const mc = +clamp(k.minCut - 0.1, 0.4, 2).toFixed(2);
+        const mc = +clamp(k.minCut - 0.1, 0.25, 0.8).toFixed(2);
         if (mc !== k.minCut) out.changes.push(`smoothing ${k.minCut}→${mc} (path ${Math.round(effM * 100)}% straight)`);
         k.minCut = mc;
-      } else if (effM != null && effM > 0.97 && k.minCut < 1.5) {
-        const mc = +clamp(k.minCut + 0.05, 0.4, 1.5).toFixed(2);
+      } else if (effM != null && effM > 0.97 && k.minCut < 0.8) {
+        const mc = +clamp(k.minCut + 0.05, 0.25, 0.8).toFixed(2);
         out.changes.push(`smoothing ${k.minCut}→${mc} (straight paths: less lag)`);
         k.minCut = mc;
       }
@@ -4233,6 +4268,7 @@
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
       $('camCtl').hidden = true;
+      $('cam').hidden = true;
       SND.finish();
       G = G || {};
       G.over = { t0: performance.now(), wasPinch: true, openSince: 0, btns: ['carryAgain', 'carryUndo', 'replayBtn4', 'carryShare', 'carryBack'] };
@@ -4279,6 +4315,7 @@
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
       $('camCtl').hidden = true; // the webcam controls would cover the end card's buttons on a phone
+      $('cam').hidden = true;
       SND.finish();
       G.over = { t0: performance.now(), wasPinch: true, openSince: 0 };
       const h = G.hand || HAND,
@@ -4327,8 +4364,9 @@
     // on the end card your hand works the buttons: move onto one and pinch, the same deliberate press as everywhere else
     function overFrame(f, t) {
       const o = G.over;
-      if (!o || ($('gameEnd').hidden && $('carryEnd').hidden)) return;
-      const btns = (o.btns || ['gameAgain', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack']).map((id) => $(id)).filter((b) => !b.hidden),
+      const onShare = !$('share').hidden && (shareFrom === 'gameEnd' || shareFrom === 'carryEnd');
+      if (!o || (!onShare && $('gameEnd').hidden && $('carryEnd').hidden)) return;
+      const btns = (onShare ? ['shareGo', 'shareGamesLbl', 'shareBack'] : o.btns || ['gameAgain', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack']).map((id) => $(id)).filter((b) => !b.hidden),
         fp = FLD.step(f, btns.map(rectItem), t, curSnap, curHold);
       showCur(fp.x, fp.y);
       const hot = fp.cap;
@@ -4406,7 +4444,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.35',
+        app: 'v0.36',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -4721,7 +4759,8 @@
       // the window's quadrant, grown by a margin: anything entering it is "close"
       const m = 90,
         inside = (x, y) => x > r.left - m && x < r.right + m && y > r.top - m && y < r.bottom + m;
-      const tg = S && S.el ? S.el.getBoundingClientRect() : null;
+      const tEl = S && S.el ? S.el : step === 'carry' && C ? (C.held ? C.zone && C.zone.el : C.obj && C.obj.el) : null,
+        tg = tEl ? tEl.getBoundingClientRect() : null;
       const near = inside(f.x, f.y) || (tg && inside(tg.left + tg.width / 2, tg.top + tg.height / 2));
       if (!near) return;
       let q = OPP[camQ];
@@ -5019,13 +5058,18 @@
         $('prompt').hidden = true;
         $('ask').hidden = true;
         $('gameHud').hidden = true;
+        if (held === 'carry' && C) {
+          if (C.obj) C.obj.el.remove();
+          if (C.zone) C.zone.el.remove();
+        }
+        if (held === 'game' && G && G.bubbles) G.bubbles.forEach((b) => b.el.remove());
         clearTargets();
         const card = document.createElement('section');
         card.className = 'card';
         card.id = 'pauseCard';
         card.innerHTML = '<h2>Paused</h2><p>The training runs full screen so your hand can use the whole display.</p><div class="row"><button type="button" class="primary" id="resumeFs">⛶ Back to full screen and continue</button><button type="button" id="quitFs">Stop training</button><button type="button" id="replayFs">🎞 Replay what happened</button></div>';
-        $('replayFs').onclick = () => showReplay();
         document.body.appendChild(card);
+        $('replayFs').onclick = () => showReplay();
         $('resumeFs').onclick = () => {
           card.remove();
           goFull();
@@ -5037,6 +5081,7 @@
           else if (held === 'aim' || held === 'feel') startAim();
           else if (held === 'ask') startAim();
           else if (held === 'game') startGame();
+          else if (held === 'carry') startCarry();
         };
         $('quitFs').onclick = () => {
           card.remove();
