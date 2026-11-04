@@ -708,7 +708,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.26, 3 Nov 2026">v0.26</div>
+<div id="ver" title="Hand control training, version 0.27, 3 Nov 2026">v0.27</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -728,7 +728,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.26 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.27 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1792,18 +1792,157 @@
     };
     $('confirmNo').onclick = () => unpick();
     // pinching a number with the hand cursor presses it
+
+    // ---- buttons as lenses (Snell's law). Each button or bubble is a patch of "glass" with a higher refractive index n,
+    // graded smoothly from 1 out in the open to nMax inside it (the gradient spans 120% of your button pull). The cursor is
+    // a ray: each frame it moves by the hand's own movement, divided by n where it is, and its direction refracts at the
+    // change of n by Snell's law, n1·sin θ1 = n2·sin θ2, measured from the gradient of n (the "normal").
+    //  · going in, it bends toward the button's centre and slows down, so it overshoots less;
+    //  · inside, the hand's movement is divided by nMax, so a jitter moves the cursor only a fraction as far;
+    //  · going out at a shallow angle (sliding along the edge, which is what jitter does) it meets total internal reflection
+    //    and stays in; only a move outward, close to the normal, gets out.
+    // Because the cursor then isn't exactly where the hand points, it drifts back to the hand: quickly in the open, slowly
+    // inside a lens, and at once if the hand is clearly elsewhere (further than the lens reaches), so it never gets stuck.
+    // A lens moves with its bubble, carrying the cursor inside it. While the fingers close for a pinch, n is raised further,
+    // so the slide of the palm as you pinch can't drag the cursor off. nMax comes from the hand's profile (k.lens).
+    // The Targets step (4) has no lenses, because it measures your own aim.
+    class Field {
+      constructor() {
+        this.reset();
+      }
+      reset() {
+        this.p = null;
+        this.raw = null;
+        this.prev = new Map(); // each item's centre last frame, to carry the cursor with a moving bubble
+        this.pr = [];
+      }
+      // n at a point: 1 in the open, rising to nMax at and inside an item's edge
+      n(x, y, items, span, nMax) {
+        let g = 0;
+        for (const it of items) {
+          const d = it.dist(x, y);
+          if (d <= 0) return { n: nMax, inside: it };
+          if (d < span) {
+            const u = 1 - d / span;
+            g = Math.max(g, u * u * (3 - 2 * u));
+          }
+        }
+        return { n: 1 + (nMax - 1) * g, inside: null };
+      }
+      step(f, items, t, snap, nMax) {
+        nMax = nMax || 2.5;
+        const span = Math.max(36, snap * 1.2);
+        this.pr.push([t, f.pr]);
+        while (this.pr.length && t - this.pr[0][0] > 150) this.pr.shift();
+        const closing = f.pinch || (this.pr.length > 2 && this.pr[0][1] - f.pr > 0.08);
+        if (!this.p) {
+          this.p = [f.x, f.y];
+          this.raw = [f.x, f.y];
+        }
+        let [px, py] = this.p;
+        // a lens that moved carries the cursor inside it
+        const cur = this.n(px, py, items, span, nMax);
+        if (cur.inside && this.prev.has(cur.inside.key)) {
+          const [ox, oy] = this.prev.get(cur.inside.key);
+          px += cur.inside.cx - ox;
+          py += cur.inside.cy - oy;
+        }
+        this.prev = new Map(items.map((it) => [it.key, [it.cx, it.cy]]));
+        const dx = f.x - this.raw[0],
+          dy = f.y - this.raw[1];
+        this.raw = [f.x, f.y];
+        const len = Math.hypot(dx, dy);
+        const kClose = closing ? 3 : 1;
+        if (len > 1e-6) {
+          const n1 = this.n(px, py, items, span, nMax).n * kClose;
+          // the normal: the gradient of n, by central differences (pointing toward higher n, i.e. into the lens)
+          const e = 3,
+            gx = this.n(px + e, py, items, span, nMax).n - this.n(px - e, py, items, span, nMax).n,
+            gy = this.n(px, py + e, items, span, nMax).n - this.n(px, py - e, items, span, nMax).n,
+            gl = Math.hypot(gx, gy);
+          let ux = dx / len,
+            uy = dy / len;
+          // where the ray is heading, to find n2
+          const n2 = this.n(px + ux * (len / n1), py + uy * (len / n1), items, span, nMax).n * kClose;
+          if (gl > 1e-6 && Math.abs(n2 - n1) > 1e-4) {
+            let nx = gx / gl,
+              ny = gy / gl;
+            let cos1 = ux * nx + uy * ny;
+            if (cos1 < 0) {
+              // moving down the gradient (outward): use the outward normal
+              nx = -nx;
+              ny = -ny;
+              cos1 = -cos1;
+            }
+            const sin1 = Math.sqrt(Math.max(0, 1 - cos1 * cos1)),
+              sin2 = (n1 / n2) * sin1;
+            // the tangential direction (along the edge)
+            let tx = ux - cos1 * nx,
+              ty = uy - cos1 * ny;
+            const tl = Math.hypot(tx, ty);
+            if (tl > 1e-6) {
+              tx /= tl;
+              ty /= tl;
+            }
+            if (sin2 >= 1) {
+              // total internal reflection: the outward part of the move turns back in
+              ux = tx * sin1 - nx * cos1;
+              uy = ty * sin1 - ny * cos1;
+            } else {
+              const cos2 = Math.sqrt(1 - sin2 * sin2);
+              ux = tx * sin2 + nx * cos2;
+              uy = ty * sin2 + ny * cos2;
+            }
+          }
+          const nm = (n1 + n2) / 2;
+          px += (ux * len) / nm;
+          py += (uy * len) / nm;
+        }
+        // drift back to where the hand points: fast in the open, slow inside a lens, at once if the hand is far away
+        const here = this.n(px, py, items, span, nMax),
+          off = Math.hypot(f.x - px, f.y - py),
+          inLens = (here.n - 1) / Math.max(1e-6, nMax - 1),
+          k = off > span * 1.6 ? 0.35 : 0.25 * (1 - inLens) + 0.02 * inLens;
+        px += (f.x - px) * (closing ? k * 0.2 : k);
+        py += (f.y - py) * (closing ? k * 0.2 : k);
+        px = clamp(px, 0, innerWidth);
+        py = clamp(py, 0, innerHeight);
+        this.p = [px, py];
+        const fin = this.n(px, py, items, span, nMax);
+        // captured: the cursor is inside an item, or within a few px of its edge
+        let cap = fin.inside;
+        if (!cap)
+          for (const it of items)
+            if (it.dist(px, py) < 4) {
+              cap = it;
+              break;
+            }
+        return { x: px, y: py, cap: cap ? cap.key : null, n: fin.n };
+      }
+    }
+    const rectItem = (el) => {
+      const r = el.getBoundingClientRect();
+      return { key: el, cx: r.left + r.width / 2, cy: r.top + r.height / 2, dist: (x, y) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom)) };
+    };
+    const showCur = (x, y) => {
+      const c = $('cur');
+      c.style.left = x + 'px';
+      c.style.top = y + 'px';
+    };
+    let curSnap = BASE.snap, // the button pull of the hand in use (from its profile), which sizes the lenses
+      curLens = 2.5; // and how strongly they slow the cursor (nMax, k.lens)
+    const FLD = new Field();
+    // a shakier hand gets stronger lenses: 2 for a steady one, up to 4
+    const lensFor = (wobble) => +clamp(2 + Math.max(0, (wobble || 0) - 2) / 4, 2, 4).toFixed(2);
     let askPinch = true,
       askOpen = 0;
     function askFrame(f, t) {
-      let hot = null;
       if (!f.pinch) askOpen = askOpen || t;
-      [...$('scale').querySelectorAll('button'), ...(picked ? [$('confirmYes'), $('confirmNo')] : [])].forEach((b) => {
-          const r = b.getBoundingClientRect(),
-            d = Math.hypot(Math.max(r.left - f.x, 0, f.x - r.right), Math.max(r.top - f.y, 0, f.y - r.bottom)),
-            on = d < 18;
-          b.classList.toggle('hot', on);
-          if (on) hot = b;
-        });
+      const btns = [...$('scale').querySelectorAll('button'), ...(picked ? [$('confirmYes'), $('confirmNo')] : [])],
+        fp = FLD.step(f, btns.map(rectItem), t, Math.max(curSnap, R.snap || 0), step === 'ask' && R.wobble != null ? lensFor(R.wobble) : curLens);
+      showCur(fp.x, fp.y);
+      const hot = fp.cap;
+      btns.forEach((b) => b.classList.toggle('hot', b === hot));
       if (f.pinch && !askPinch && hot && askOpen && t - askOpen > 250 && t - askT0 > 500 && t - askT1 > 500) hot.click();
       if (f.pinch) askOpen = 0;
       askPinch = f.pinch;
@@ -1956,7 +2095,7 @@
       R.time = time;
       R.hands = R.hands || {};
       R.hands[HAND] = {
-        k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff },
+        k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff, lens: lensFor(R.wobble) },
         // the same pinch thresholds in the atlas's 3D world space, and the image-to-world transform they came with
         kW: R.kW || null,
         pinchMap: R.pinchMap || null,
@@ -2036,7 +2175,7 @@
         rows.push(['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${m.open != null ? ` (open ${m.open.toFixed(2)}, firm pinch ${m.closed.toFixed(2)})` : ''}`]);
         if (q.kW) rows.push(['Pinch in 3D', `on below ${q.kW.pOn.toFixed(2)}, off above ${q.kW.pOff.toFixed(2)}${q.pinchMap ? ` · world = ${q.pinchMap.a.toFixed(2)} × image ${q.pinchMap.b >= 0 ? '+' : '−'} ${Math.abs(q.pinchMap.b).toFixed(2)}, r² ${q.pinchMap.r2.toFixed(2)}` : ''}`]);
         rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}${m.tremorHz ? `, tremor band peak ${m.tremorHz} Hz, noise ${Math.round(m.noise * 100)}%` : ''}`]);
-        rows.push(['Button pull', `${k.snap} px${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
+        rows.push(['Button pull', `${k.snap} px${k.lens ? `, lens ×${k.lens}` : ''}${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
         if (m.fastPeak != null) rows.push(['Fast moves', `peak ${m.fastPeak} px/s, cursor lag ${m.fastLag} px, overshoot ${m.fastOver ?? '–'} px, settles in ${m.fastSettle != null ? (m.fastSettle / 1000).toFixed(2) + ' s' : '–'}`]);
         if (q.corners && q.corners.length) rows.push(['Corners, how easy', q.corners.map((c) => `${c.corner} ${c.score}/7${c.auto ? ' (measured)' : ''}`).join(' · ')]);
         rows.push(['How easy', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–']);
@@ -2139,6 +2278,9 @@
         p = JSON.parse(localStorage.getItem(KEY) || 'null');
       } catch (e) {}
       const q = p ? (p.hands && p.hands[h]) || (!p.hands && p.k ? p : null) : null;
+      curSnap = q && q.k && q.k.snap ? q.k.snap : BASE.snap;
+      curLens = q && q.k && q.k.lens ? q.k.lens : lensFor(q && q.measured && q.measured.wobble);
+      FLD.reset();
       if (q && q.k) {
         reach = Object.assign({}, q.reach || BASE_REACH_NOW);
         fx.minCut = fy.minCut = q.k.minCut;
@@ -2275,12 +2417,15 @@
         bd = 1e9;
       G.bubbles.forEach((b) => {
         const d = Math.hypot(f.x - bx(b), f.y - b.y) - b.r;
-        b.el.classList.toggle('hot', d < 12);
         if (d < bd) {
           bd = d;
           best = b;
         }
       });
+      // each bubble is a field that moves with it; the captured bubble is the one a pinch pops
+      const fp = FLD.step(f, G.bubbles.map((b) => ({ key: b, cx: bx(b), cy: b.y, dist: (x, y) => Math.hypot(x - bx(b), y - b.y) - b.r })), t, curSnap, curLens);
+      showCur(fp.x, fp.y);
+      G.bubbles.forEach((b) => b.el.classList.toggle('hot', b === fp.cap));
       // samples for tuning: the pinch ratio of an open hand while aiming at a bubble, the firmest point of each pinch, and
       // how far the cursor slid in the 150 ms before a press (pinching drags the palm point)
       G.trail.push([t, f.x, f.y]);
@@ -2304,7 +2449,9 @@
         if (back) G.drift.push(Math.hypot(f.x - back[1], f.y - back[2]));
       }
       if (fresh && !gamePaused(performance.now())) {
-        if (best && bd < 14) popBubble(best, t, f);
+        // the lens's captured bubble pops; precision is still measured from where your hand pointed (f), not the pulled cursor
+        if (fp.cap) popBubble(fp.cap, t, f);
+        else if (best && bd < 14) popBubble(best, t, f);
         else if (best && bd < 120) {
           szStat(best.size).miss++;
           G.missD.push(bd);
@@ -2419,9 +2566,14 @@
         const ns = clamp(k.snap + Math.min(6, Math.round(near * 25)), 28, 72);
         if (ns !== k.snap) out.changes.push(`button pull ${k.snap}→${ns} px (${Math.round(near * 100)}% of pinches just missed)`);
         k.snap = ns;
+        const l0 = k.lens || curLens,
+          l1 = +clamp(l0 + 0.25, 2, 4).toFixed(2);
+        if (l1 !== l0) out.changes.push(`lens strength ${l0}→${l1}`);
+        k.lens = l1;
       } else if (near < 0.03 && acc > 0.9 && k.snap > 30) {
         out.changes.push(`button pull ${k.snap}→${k.snap - 1} px (clean round)`);
         k.snap -= 1;
+        if ((k.lens || curLens) > 2) k.lens = +Math.max(2, (k.lens || curLens) - 0.1).toFixed(2);
       }
       if (!out.changes.length) {
         out.note = 'Your settings already fit this round: nothing to change.';
@@ -2521,16 +2673,11 @@
     function overFrame(f, t) {
       const o = G.over;
       if (!o || $('gameEnd').hidden) return;
-      let hot = null;
-      ['gameAgain', 'gameUndo', 'replayBtn2', 'gameBack'].forEach((id) => {
-        const b = $(id);
-        if (b.hidden) return;
-        const r = b.getBoundingClientRect(),
-          d = Math.hypot(Math.max(r.left - f.x, 0, f.x - r.right), Math.max(r.top - f.y, 0, f.y - r.bottom)),
-          on = d < 16;
-        b.classList.toggle('hot', on);
-        if (on) hot = b;
-      });
+      const btns = ['gameAgain', 'gameUndo', 'replayBtn2', 'gameBack'].map((id) => $(id)).filter((b) => !b.hidden),
+        fp = FLD.step(f, btns.map(rectItem), t, curSnap, curLens);
+      showCur(fp.x, fp.y);
+      const hot = fp.cap;
+      btns.forEach((b) => b.classList.toggle('hot', b === hot));
       if (!f.pinch) o.openSince = o.openSince || t;
       // not in the first second (the round's last pinch can't press anything), and only a fresh pinch after an open hand
       if (f.pinch && !o.wasPinch && hot && o.openSince && t - o.openSince > 200 && performance.now() - o.t0 > 1000) {
@@ -2601,7 +2748,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.26',
+        app: 'v0.27',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -3202,6 +3349,7 @@
     window.trainGameEnd = endGame;
     window.trainGameTune = gameTune;
     window.trainOverFrame = overFrame;
+    window.trainField = Field;
     window.trainReplay = showReplay;
     window.trainRecLog = recLog;
   })();
