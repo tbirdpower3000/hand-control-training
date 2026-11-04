@@ -352,6 +352,24 @@
       opacity: 0;
     }
   }
+  /* the lighting word under the game HUD: what the camera's picture says about the room's light */
+  #lightChip {
+    position: fixed;
+    top: calc(max(12px, env(safe-area-inset-top, 0px)) + 44px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    font: 600 0.9rem var(--mono, monospace);
+    background: rgba(7, 11, 20, 0.8);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 12px;
+    white-space: nowrap;
+  }
+  #lightChip.warn {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
   #gameHud {
     position: fixed;
     top: max(12px, env(safe-area-inset-top, 0px));
@@ -822,11 +840,12 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.36, 4 Nov 2026">v0.36</div>
+<div id="ver" title="Hand control training, version 0.37, 4 Nov 2026">v0.37</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
 <div id="cur" hidden></div>
+<div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div>
 <div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span><i id="gComboL">Combo</i> <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span><i id="gBestL">Best</i> <b id="gBest">0</b></span></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
@@ -842,7 +861,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.36 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.37 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1548,7 +1567,214 @@
     // (the task, how tilted and how far the hand is, which hand, how fast it is moving, the target's size) and picks the
     // model whose estimated reward plus a bonus for uncertainty is highest; after the episode it learns from how it went.
     // Per model it keeps a d×d matrix A and a vector b; the estimate is θ = A⁻¹b. Saved in the profile per hand.
-    const CTX_D = 9;
+    // ---- lighting: four times a second the camera picture is shrunk to 64×36 and measured: how bright it is (mean luma,
+    // Rec. 709 weights, 0–255), its contrast (the spread of luma), how much is blown out (> 245) or black (< 20), whether
+    // the border is much brighter than the middle (a window or lamp behind you), how bright the hand is and how much it
+    // stands out from the rest, the colour cast (blue against red) and how much the brightness jumps from one sample to
+    // the next. Only these numbers are kept, for 2 s and as a median per round; no picture is stored or sent.
+    // The words use thresholds chosen for webcams: their auto-exposure aims the picture's average near middle grey (about
+    // 118 of 255 in sRGB, the 18% grey that exposure meters assume), so an average well below that means the camera has
+    // run out of exposure (a dark, noisy picture: Dim below 90, Dark below 50), more than 15% blown out or an average above 200 is Bright, and a border 1.4 times brighter than the
+    // middle means the exposure is set by a bright background, which turns the hand into a silhouette (Backlit).
+    const LIGHT_W = 64,
+      LIGHT_H = 36,
+      LIGHT_KEYS = ['luma', 'contrast', 'clipped', 'dark', 'backlight', 'handLuma', 'handContrast', 'bOverR', 'flicker'];
+    const LIGHT = { cv: null, x: null, last: 0, win: [], cur: null };
+    const LR = { on: false, t0: 0, samples: [], frames: 0, drops: 0, scores: [], jit: [], still: [], lastStill: 0, badSince: 0, hints: 0, pt: 0 };
+    const sdOf = (a) => {
+      if (a.length < 2) return 0;
+      const m = a.reduce((p_, q) => p_ + q, 0) / a.length;
+      return Math.sqrt(a.reduce((p_, q) => p_ + (q - m) ** 2, 0) / a.length);
+    };
+    function lightSample(src, box, now) {
+      if (!LIGHT.cv) {
+        LIGHT.cv = document.createElement('canvas');
+        LIGHT.cv.width = LIGHT_W;
+        LIGHT.cv.height = LIGHT_H;
+        LIGHT.x = LIGHT.cv.getContext('2d', { willReadFrequently: true });
+      }
+      let d;
+      try {
+        LIGHT.x.drawImage(src, 0, 0, LIGHT_W, LIGHT_H);
+        d = LIGHT.x.getImageData(0, 0, LIGHT_W, LIGHT_H).data;
+      } catch (e) {
+        return null;
+      }
+      // the hand's box in the small picture (camera coordinates, not mirrored), grown by 10% on each side
+      let hx0 = -1,
+        hx1 = -1,
+        hy0 = -1,
+        hy1 = -1;
+      if (box) {
+        const pw = (box.x1 - box.x0) * 0.1,
+          ph = (box.y1 - box.y0) * 0.1;
+        hx0 = Math.max(0, Math.floor((box.x0 - pw) * LIGHT_W));
+        hx1 = Math.min(LIGHT_W - 1, Math.ceil((box.x1 + pw) * LIGHT_W));
+        hy0 = Math.max(0, Math.floor((box.y0 - ph) * LIGHT_H));
+        hy1 = Math.min(LIGHT_H - 1, Math.ceil((box.y1 + ph) * LIGHT_H));
+      }
+      let n = 0,
+        sum = 0,
+        sum2 = 0,
+        clip = 0,
+        dk = 0,
+        bS = 0,
+        bN = 0,
+        cS = 0,
+        cN = 0,
+        hS = 0,
+        hN = 0,
+        oS = 0,
+        oN = 0,
+        Rs = 0,
+        Bs = 0;
+      for (let y = 0; y < LIGHT_H; y++)
+        for (let x = 0; x < LIGHT_W; x++) {
+          const i = (y * LIGHT_W + x) * 4,
+            r = d[i],
+            b = d[i + 2],
+            Y = 0.2126 * r + 0.7152 * d[i + 1] + 0.0722 * b;
+          n++;
+          sum += Y;
+          sum2 += Y * Y;
+          if (Y > 245) clip++;
+          if (Y < 20) dk++;
+          Rs += r;
+          Bs += b;
+          // the border ring (8 px at the sides, 5 at top and bottom of the small picture) and the middle half
+          if (x < 8 || x >= LIGHT_W - 8 || y < 5 || y >= LIGHT_H - 5) {
+            bS += Y;
+            bN++;
+          } else if (x >= 16 && x < LIGHT_W - 16 && y >= 9 && y < LIGHT_H - 9) {
+            cS += Y;
+            cN++;
+          }
+          if (hx0 >= 0 && x >= hx0 && x <= hx1 && y >= hy0 && y <= hy1) {
+            hS += Y;
+            hN++;
+          } else {
+            oS += Y;
+            oN++;
+          }
+        }
+      const luma = sum / n,
+        smp = {
+          t: now,
+          luma,
+          contrast: Math.sqrt(Math.max(0, sum2 / n - luma * luma)),
+          clipped: clip / n,
+          dark: dk / n,
+          backlight: bS / bN / Math.max(1, cS / cN),
+          handLuma: hN ? hS / hN : null,
+          handContrast: hN && oN ? Math.abs(hS / hN - oS / oN) : null,
+          bOverR: Bs / Math.max(1, Rs),
+        };
+      LIGHT.win.push(smp);
+      while (LIGHT.win.length && now - LIGHT.win[0].t > 2000) LIGHT.win.shift();
+      // flicker: how much the brightness jumps between samples (the spread of successive differences over the last 2 s)
+      const diffs = LIGHT.win.slice(1).map((q, i) => q.luma - LIGHT.win[i].luma);
+      smp.flicker = sdOf(diffs);
+      LIGHT.cur = smp;
+      if (LR.on) LR.samples.push(smp);
+      lightShow(now);
+      return smp;
+    }
+    // the last 2 s, as medians
+    function lightNow() {
+      if (!LIGHT.win.length) return null;
+      const o = {};
+      for (const k of LIGHT_KEYS) {
+        const v = LIGHT.win.map((q) => q[k]).filter((q) => q != null && isFinite(q));
+        o[k] = v.length ? median(v) : null;
+      }
+      return o;
+    }
+    function lightWord(l) {
+      if (!l || l.luma == null) return null;
+      if (l.backlight != null && l.backlight > 1.4) return 'Backlit';
+      if (l.luma < 50) return 'Dark';
+      if (l.luma < 90) return 'Dim';
+      if (l.luma > 200 || (l.clipped != null && l.clipped > 0.15)) return 'Bright';
+      return 'Good';
+    }
+    const LIGHT_FIX = {
+      Dark: ['💡 It’s dark: turn on a light in front of you', 'The camera needs light on your hand to find it. A lamp behind the screen, facing you, works best.'],
+      Backlit: ['🪟 A bright light behind you is making your hand a silhouette', 'Close the curtain or turn so the window is beside you, or add a light in front of you.'],
+    };
+    // during a game: show the word, and in the first 10 s of a round, if it has been Dark or Backlit for 3 s, say how to fix it (once a round)
+    function lightShow(now) {
+      if (step !== 'game' && step !== 'carry') return;
+      const w = lightWord(lightNow());
+      if (!w) return;
+      $('lightChip').hidden = false;
+      $('lightWord').textContent = w;
+      $('lightChip').classList.toggle('warn', w === 'Dark' || w === 'Backlit' || w === 'Dim');
+      if (!LR.on || LR.hinted || now - LR.t0 > 10000) return;
+      if (w === 'Dark' || w === 'Backlit') {
+        LR.badSince = LR.badSince || now;
+        if (now - LR.badSince >= 3000) {
+          LR.hinted = true;
+          LR.hints++;
+          prompt(LIGHT_FIX[w][0], LIGHT_FIX[w][1]);
+          clearTimeout(LR.pt);
+          LR.pt = setTimeout(() => (step === 'game' || step === 'carry') && ($('prompt').hidden = true), 6000);
+        }
+      } else LR.badSince = 0;
+    }
+    // per round: how often the hand was lost while the game ran (frames resting below the waist line don't count), the
+    // tracker's confidence in which hand it is, and the wobble while the hand was held still
+    function lightRoundStart(now) {
+      Object.assign(LR, { on: true, t0: now, samples: [], frames: 0, drops: 0, scores: [], jit: [], still: [], lastStill: 0, badSince: 0, hinted: false });
+      clearTimeout(LR.pt);
+    }
+    function trackTick(hasHand, rest, score) {
+      if (!LR.on || (!hasHand && rest)) return;
+      LR.frames++;
+      if (!hasHand) LR.drops++;
+      if (score != null && isFinite(score)) LR.scores.push(score);
+    }
+    function trackStill(f, t) {
+      if (!LR.on || !f) return;
+      LR.still.push([t, f.x, f.y]);
+      while (LR.still.length && t - LR.still[0][0] > 500) LR.still.shift();
+      if (t - LR.lastStill < 500 || LR.still.length < 8) return;
+      const mx = LR.still.reduce((a, q) => a + q[1], 0) / LR.still.length,
+        my = LR.still.reduce((a, q) => a + q[2], 0) / LR.still.length,
+        far = Math.max(...LR.still.map((q) => Math.hypot(q[1] - mx, q[2] - my)));
+      if (far > 25) return; // moving, not still
+      LR.lastStill = t;
+      LR.jit.push(Math.sqrt(LR.still.reduce((a, q) => a + (q[1] - mx) ** 2 + (q[2] - my) ** 2, 0) / LR.still.length));
+    }
+    function lightRoundEnd() {
+      LR.on = false;
+      clearTimeout(LR.pt);
+      $('lightChip').hidden = true;
+      const r2 = (v, k) => (v == null || !isFinite(v) ? null : k === 'clipped' || k === 'dark' ? Math.round(v * 1000) / 1000 : Math.round(v * 100) / 100);
+      let light = null;
+      if (LR.samples.length) {
+        light = {};
+        for (const k of LIGHT_KEYS) {
+          const v = LR.samples.map((q) => q[k]).filter((q) => q != null && isFinite(q));
+          light[k] = v.length ? r2(median(v), k) : null;
+        }
+      }
+      const track = {
+        drop: LR.frames ? Math.round((LR.drops / LR.frames) * 1000) / 1000 : null,
+        score: LR.scores.length ? Math.round(median(LR.scores) * 1000) / 1000 : null,
+        jitter: LR.jit.length ? Math.round(median(LR.jit) * 100) / 100 : null,
+      };
+      return { light, track };
+    }
+    // for the end cards
+    function lightText(l, tr) {
+      const lost = tr && tr.drop != null ? `hand lost ${Math.round(tr.drop * 100)}% of the time` : '';
+      const wob = tr && tr.jitter != null ? `wobble when still ${tr.jitter.toFixed(1)} px` : '';
+      if (!l) return ['not measured (no camera picture)', lost, wob].filter(Boolean).join(' · ');
+      const w = lightWord(l);
+      return [`<b>${w}</b>: brightness ${Math.round(l.luma)}/255, contrast ${Math.round(l.contrast)}${l.handContrast != null ? `, hand against background ${Math.round(l.handContrast)}` : ''}${l.backlight > 1.4 ? `, edges ${l.backlight.toFixed(1)}× brighter than the middle` : ''}`, lost, wob].filter(Boolean).join(' · ');
+    }
+
+    const CTX_D = 10; // the 9 situation numbers below plus the room's brightness
     class Chooser {
       constructor(arms, saved) {
         this.arms = arms;
@@ -1558,9 +1784,12 @@
         this.b = {};
         this.n = {};
         for (const a of arms) {
-          const sv = saved && saved.arms && saved.arms[a];
-          this.A[a] = sv && Array.isArray(sv.A) && sv.A.length === this.d ? sv.A.map((r) => r.slice()) : Chooser.ident(this.d);
-          this.b[a] = sv && Array.isArray(sv.b) && sv.b.length === this.d ? sv.b.slice() : new Array(this.d).fill(0);
+          const sv = saved && saved.arms && saved.arms[a],
+            k = sv && Array.isArray(sv.A) && Array.isArray(sv.b) && sv.A.length === sv.b.length && sv.A.length <= this.d && sv.A.every((r) => Array.isArray(r) && r.length === sv.A.length) ? sv.A.length : 0;
+          // a matrix saved when the situation had fewer numbers (an older version) is kept and grown: the new numbers
+          // start as if never seen (identity on the diagonal, nothing learned)
+          this.A[a] = k ? Chooser.ident(this.d).map((row, i) => (i < k ? [...sv.A[i], ...row.slice(k)] : row)) : Chooser.ident(this.d);
+          this.b[a] = k ? [...sv.b, ...new Array(this.d - k).fill(0)] : new Array(this.d).fill(0);
           this.n[a] = (sv && sv.n) || 0;
         }
       }
@@ -1585,7 +1814,11 @@
         }
         return a.map((r) => r.slice(d));
       }
+      fit(x) {
+        return x.length >= this.d ? x : [...x, ...new Array(this.d - x.length).fill(0)];
+      }
       score(a, x) {
+        x = this.fit(x);
         const Ai = Chooser.inv(this.A[a]),
           th = Ai.map((r) => r.reduce((s, v, j) => s + v * this.b[a][j], 0)),
           mean = th.reduce((s, v, i) => s + v * x[i], 0),
@@ -1606,6 +1839,7 @@
         return best;
       }
       update(a, x, r) {
+        x = this.fit(x);
         r = clamp(r, 0, 1);
         for (let i = 0; i < this.d; i++) {
           for (let j = 0; j < this.d; j++) this.A[a][i][j] += x[i] * x[j];
@@ -1619,7 +1853,7 @@
     }
     // the situation, as numbers 0..1: task (press / carry / turn), how far the palm tilts out of the picture (its length
     // against its width, relative to the flattest seen), which hand, how near (palm width against the largest seen), how
-    // fast the hand moves, the target's size, and a constant
+    // fast the hand moves, the target's size, a constant, and how bright the room is
     const CTX = { ratioMax: 0, widthMax: 0 };
     function ctxFeatures(task, f, side, targetPx) {
       const ratio = f.palmW > 1e-4 ? f.palm / f.palmW : 0;
@@ -1627,7 +1861,7 @@
       CTX.widthMax = Math.max(f.palmW || 0, CTX.widthMax * 0.9995);
       const tilt = CTX.ratioMax > 0 ? clamp(1 - ratio / CTX.ratioMax, 0, 1) : 0,
         dist = CTX.widthMax > 0 ? clamp((f.palmW || 0) / CTX.widthMax, 0, 1) : 1;
-      return [task === 'press' ? 1 : 0, task === 'carry' ? 1 : 0, task === 'turn' ? 1 : 0, +tilt.toFixed(3), side === 'Left' ? 1 : 0, +dist.toFixed(3), +clamp(f.fast || 0, 0, 1).toFixed(3), +clamp((targetPx || 60) / 160, 0, 1).toFixed(3), 1];
+      return [task === 'press' ? 1 : 0, task === 'carry' ? 1 : 0, task === 'turn' ? 1 : 0, +tilt.toFixed(3), side === 'Left' ? 1 : 0, +dist.toFixed(3), +clamp(f.fast || 0, 0, 1).toFixed(3), +clamp((targetPx || 60) / 160, 0, 1).toFixed(3), 1, +(LIGHT.cur ? clamp(LIGHT.cur.luma / 255, 0, 1) : 0.5).toFixed(3)];
     }
     const timeFactor = (ms) => clamp(1.5 - ms / 4000, 0.5, 1);
     let CUR_SIDE = 'Right';
@@ -3045,7 +3279,9 @@
       });
       const fsR = featureSection('Right'),
         fsL = featureSection('Left');
-      $('cmpBody').insertAdjacentHTML('beforeend', `${fsR.html}${fsL.html}<p class="muted">Each feature is on in half the rounds, by a balanced draw. The effect is from a least-squares fit over the rounds (with the hand model allowed for); “implement in the atlas” needs t ≥ 2; “remove” means a clear loss, or no effect after 12 rounds with it on. Use counts are episodes (targets) played with it on.</p><div class="row"><button type="button" id="cmpCopy">Copy suggestions</button></div>`);
+      const lsR = lightSection('Right'),
+        lsL = lightSection('Left');
+      $('cmpBody').insertAdjacentHTML('beforeend', `${fsR.html}${fsL.html}${lsR.html}${lsL.html}<p class="muted">Lighting is measured from the camera picture four times a second (only the numbers are kept). The fits need 6 rounds with lighting measured; a slope with |t| ≥ 2 is a clear effect. The feature trials allow for the light too, so a brighter round isn't credited to a feature.</p><p class="muted">Each feature is on in half the rounds, by a balanced draw. The effect is from a least-squares fit over the rounds (with the hand model allowed for); “implement in the atlas” needs t ≥ 2; “remove” means a clear loss, or no effect after 12 rounds with it on. Use counts are episodes (targets) played with it on.</p><div class="row"><button type="button" id="cmpCopy">Copy suggestions</button></div>`);
       $('cmpCopy').onclick = () => {
         const txt = fsR.text + '\n\n' + fsL.text;
         try {
@@ -3096,7 +3332,14 @@
           use = rs.filter((x) => metric(x) != null && isFinite(metric(x))),
           modelCols = [...MODEL_IDS.slice(1), 'adaptive'],
           mapCols = MAPPING_IDS.slice(1).filter((m) => use.some((x) => x.mapping === m)),
-          X = use.map((x) => [1, ...FEATURE_IDS.map((id) => (x.features.includes(id) ? 1 : 0)), ...modelCols.map((m) => (x.model === m ? 1 : 0)), ...mapCols.map((m) => (x.mapping === m ? 1 : 0))]),
+          // the room's light, allowed for when most rounds measured it (a missing value takes the average)
+          lit = use.filter((x) => x.light && isFinite(x.light.luma)),
+          cov = lit.length >= 3 && lit.length >= use.length / 2,
+          avgOf = (a) => (a.length ? a.reduce((p_, q) => p_ + q, 0) / a.length : 0),
+          mL = avgOf(lit.map((x) => x.light.luma)),
+          mC = avgOf(lit.map((x) => x.light.handContrast).filter((v) => v != null && isFinite(v))),
+          covCols = (x) => (cov ? [(x.light && isFinite(x.light.luma) ? x.light.luma : mL) / 100, (x.light && x.light.handContrast != null && isFinite(x.light.handContrast) ? x.light.handContrast : mC) / 100] : []),
+          X = use.map((x) => [1, ...FEATURE_IDS.map((id) => (x.features.includes(id) ? 1 : 0)), ...modelCols.map((m) => (x.model === m ? 1 : 0)), ...mapCols.map((m) => (x.mapping === m ? 1 : 0)), ...covCols(x)]),
           y = use.map(metric),
           fit = X.length ? olsFit(X, y) : null,
           feats = {};
@@ -3124,7 +3367,7 @@
           else if (tv != null && (tv <= -2 || (on >= 12 && Math.abs(tv) < 0.5))) verdict = 'remove';
           maps[m] = { on, effect: effect != null ? +effect.toFixed(3) : null, se: se != null ? +se.toFixed(3) : null, t: tv != null ? +tv.toFixed(2) : null, verdict, n: use.length };
         });
-        out[kind] = { n: use.length, fitted: !!fit, feats, maps, unit: kind === 'game' ? 'bits/s' : 'points/min' };
+        out[kind] = { n: use.length, fitted: !!fit, feats, maps, lightCov: cov, unit: kind === 'game' ? 'bits/s' : 'points/min' };
       }
       return out;
     }
@@ -3177,6 +3420,52 @@
         <dt>Never used / no effect</dt><dd>${dead.length ? dead.join('<br />') : 'Nothing yet (judged after 12 rounds with a feature on).'}</dd></dl>
         <table class="cmp"><thead><tr><th>feature</th><th>pop on / off</th><th>pop effect (${fx_.game.unit})</th><th>verdict</th><th>carry on / off</th><th>carry effect (${fx_.carry.unit})</th><th>verdict</th><th>used (episodes)</th></tr></thead><tbody>${tbl}</tbody></table>`,
       };
+    }
+    // lighting and tracking: the rounds grouped by the room's light, and a straight-line fit of each tracking measure on
+    // brightness and on how much the hand stands out (per 100 levels of each)
+    const LIGHT_BUCKETS = ['Dark', 'Dim', 'Good', 'Bright', 'Backlit'];
+    function lightSection(h) {
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && x.light && x.light.luma != null),
+        avg = (a) => {
+          const v = a.filter((q) => q != null && isFinite(q));
+          return v.length ? v.reduce((p_, q) => p_ + q, 0) / v.length : null;
+        },
+        f1 = (v, d) => (v == null ? '–' : v.toFixed(d));
+      const buckets = {};
+      for (const b of LIGHT_BUCKETS) {
+        const rs = rows.filter((x) => lightWord(x.light) === b);
+        buckets[b] = {
+          rounds: rs.length,
+          drop: avg(rs.map((x) => x.track && x.track.drop)),
+          jitter: avg(rs.map((x) => x.track && x.track.jitter)),
+          tp: avg(rs.filter((x) => x.kind === 'game').map((x) => x.tp)),
+          errPx: avg(rs.filter((x) => x.kind === 'carry').map((x) => x.errPx)),
+        };
+      }
+      const metrics = [
+        ['hand lost (share of frames)', (x) => x.track && x.track.drop],
+        ['wobble when still (px)', (x) => x.track && x.track.jitter],
+        ['pop throughput (bits/s)', (x) => (x.kind === 'game' ? x.tp : null)],
+        ['carry placement (px)', (x) => (x.kind === 'carry' ? x.errPx : null)],
+      ];
+      const reg = {};
+      for (const [name, m] of metrics) {
+        const use = rows.filter((x) => m(x) != null && isFinite(m(x)) && x.light.handContrast != null && isFinite(x.light.handContrast)),
+          fit = use.length >= 6 ? olsFit(use.map((x) => [1, x.light.luma / 100, x.light.handContrast / 100]), use.map(m)) : null;
+        reg[name] = fit
+          ? { n: use.length, luma: { slope: fit.beta[1], se: fit.se[1], t: fit.se[1] > 1e-9 ? fit.beta[1] / fit.se[1] : null }, hand: { slope: fit.beta[2], se: fit.se[2], t: fit.se[2] > 1e-9 ? fit.beta[2] / fit.se[2] : null } }
+          : { n: use.length };
+      }
+      const cell = (e) => (e ? `${e.slope > 0 ? '+' : ''}${e.slope.toFixed(3)} ± ${e.se.toFixed(3)} (t ${e.t == null ? '–' : e.t.toFixed(1)})` : '–');
+      const html = `<h3>Lighting and tracking, ${h.toLowerCase()} hand</h3>
+        <table class="cmp"><thead><tr><th>light</th><th>rounds</th><th>hand lost</th><th>wobble when still (px)</th><th>pop throughput (bits/s)</th><th>carry placement (px)</th></tr></thead><tbody>${LIGHT_BUCKETS.map((b) => {
+          const q = buckets[b];
+          return `<tr><th>${b}</th><td>${q.rounds}</td><td>${q.drop == null ? '–' : Math.round(q.drop * 100) + '%'}</td><td>${f1(q.jitter, 1)}</td><td>${f1(q.tp, 2)}</td><td>${f1(q.errPx, 0)}</td></tr>`;
+        }).join('')}</tbody></table>
+        <table class="cmp"><thead><tr><th>measure</th><th>rounds</th><th>per 100 levels brighter</th><th>per 100 levels more hand contrast</th></tr></thead><tbody>${metrics
+          .map(([name]) => `<tr><th>${name}</th><td>${reg[name].n}</td><td>${cell(reg[name].luma)}</td><td>${cell(reg[name].hand)}</td></tr>`)
+          .join('')}</tbody></table>`;
+      return { buckets, reg, html, n: rows.length };
     }
     function lockModel(h, id) {
       try {
@@ -3384,6 +3673,8 @@
       const rows = history().filter((x) => x.kind === 'game' || x.kind === 'carry').slice(-n);
       return rows.map((x) => {
         const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, mapping: x.mapping ? String(x.mapping).slice(0, 8) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null, features: Array.isArray(x.features) ? x.features.slice(0, 12).map((id) => String(id).slice(0, 12)) : [], use: x.use && typeof x.use === 'object' ? Object.fromEntries(Object.entries(x.use).slice(0, 16).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
+        o.light = x.light && typeof x.light === 'object' ? Object.fromEntries(LIGHT_KEYS.map((k) => [k, r3n(x.light[k])])) : null;
+        o.track = x.track && typeof x.track === 'object' ? { drop: r3n(x.track.drop), score: r3n(x.track.score), jitter: r3n(x.track.jitter) } : null;
         if (x.kind === 'game') {
           for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'tp']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
@@ -3491,6 +3782,7 @@
     }
     function startGame() {
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      lightRoundStart(performance.now());
       $('gComboL').textContent = 'Combo';
       $('gBestL').textContent = 'Best';
       clearTimeout(G && G.pt);
@@ -3979,6 +4271,7 @@
     let C = null;
     function startCarry() {
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      lightRoundStart(performance.now());
       // the HUD's labels for this game, and no prompt timer left over from an earlier round
       $('gComboL').textContent = '📦 Delivered';
       $('gBestL').textContent = 'Slips';
@@ -4279,10 +4572,11 @@
         eff = d.filter((x) => x.eff != null),
         effM = eff.length ? eff.reduce((a, x) => a + x.eff, 0) / eff.length : null,
         hold = d.length ? median(d.map((x) => x.holdMs)) : null;
-      const hist = history();
+      const hist = history(),
+        lt = lightRoundEnd();
       saveChooser(C, h);
       endTrialRound(C, h);
-      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null, mapping: C.mapping || null });
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null, mapping: C.mapping || null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -4297,6 +4591,7 @@
         ['Time per delivery', ms == null ? '–' : `${(ms / 1000).toFixed(1)} s typical, from the square appearing`],
         ['Path straightness', effM == null ? '–' : `${Math.round(effM * 100)}% (100% = a straight line from pick-up to drop)`],
         ['Hold', hold == null ? '–' : `${(hold / 1000).toFixed(1)} s pinched per carry, typical`],
+        ['Lighting', lightText(lt.light, lt.track)],
         ['By square', d.length ? d.map((x) => `${x.spot} ${x.size}px: ${x.errPx}px, ${(x.ms / 1000).toFixed(1)}s${x.slips ? ', ' + x.slips + ' slip' : ''}`).join(' · ') : '–'],
       ];
       const tune = carryTune(h);
@@ -4331,10 +4626,11 @@
           localStorage.setItem(bestKey, JSON.stringify(all));
         } catch (e) {}
       }
-      const hist = history();
+      const hist = history(),
+        lt = lightRoundEnd();
       saveChooser(G, h);
       endTrialRound(G, h);
-      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null });
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -4352,6 +4648,7 @@
         ['Best combo', G.bestCombo > 1 ? '×' + G.bestCombo : '–'],
         ['Top speed reached', `level ${G.level + 1} of 13`],
         ['Cursor slide when pinching', G.drift.length ? `${Math.round(median(G.drift))} px typical` : '–'],
+        ['Lighting', lightText(lt.light, lt.track)],
       ];
       const tune = gameTune(h, acc, presses);
       rows.push(['Tracking', tune.changes && tune.changes.length ? (tune.reverted ? 'your ' : 'tuned for your ') + h.toLowerCase() + ' hand: ' + tune.changes.join(' · ') + (tune.reverted ? '' : '. If the next round is clearly worse, it’s undone by itself.') : tune.note || '–']);
@@ -4444,7 +4741,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.36',
+        app: 'v0.37',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -4779,6 +5076,7 @@
     function frame(L, t, label, W) {
       sideHint = false;
       let f = feat(L, t, W, label);
+      if (step === 'game' || step === 'carry') trackStill(f, t);
       const c = $('cur');
       if (step === 'game' || step === 'carry' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
       recFrame(t, L, f, label, REC.nHands || 1, false);
@@ -4873,7 +5171,7 @@
         } catch (e) {}
       }
       const r = landmarker.detectForVideo(v, now),
-        all = (r.landmarks || []).map((L, i) => ({ L, W: (r.worldLandmarks || [])[i], label: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).categoryName }));
+        all = (r.landmarks || []).map((L, i) => ({ L, W: (r.worldLandmarks || [])[i], label: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).categoryName, score: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).score }));
       // the hand in use: of the hands in view, the one on the trained hand's side of your midline, preferring the one the
       // tracker also names as that hand; the other hand is ignored completely
       const pickd = pickHand(all),
@@ -4909,9 +5207,21 @@
         });
       });
       REC.nHands = all.length;
+      // the room's light, four times a second (with the hand's box, in camera coordinates, when there is a hand)
+      if (now - LIGHT.last >= 250) {
+        LIGHT.last = now;
+        let box = null;
+        if (L) {
+          const xs = L.map((q) => q.x),
+            ys = L.map((q) => q.y);
+          box = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+        }
+        lightSample(v, box, now);
+      }
       if (!L) {
         $('cur').hidden = true;
         const rest = all.some(resting);
+        if (step === 'game' || step === 'carry') trackTick(false, rest, null);
         recFrame(now, null, null, null, all.length, rest);
         if (step && step !== 'done' && step !== 'ask' && step !== 'gameover') {
           if (rest) {
@@ -4932,6 +5242,7 @@
         if (prevPrompt) $('prompt').innerHTML = prevPrompt;
       }
       if (step && step !== 'done' && step !== 'gameover') handSeen(true, now);
+      if (step === 'game' || step === 'carry') trackTick(true, false, pickd.score);
       x.fillStyle = '#06d6a0';
       L.forEach((p) => {
         x.beginPath();
@@ -5058,6 +5369,7 @@
         $('prompt').hidden = true;
         $('ask').hidden = true;
         $('gameHud').hidden = true;
+        $('lightChip').hidden = true;
         if (held === 'carry' && C) {
           if (C.obj) C.obj.el.remove();
           if (C.zone) C.zone.el.remove();
@@ -5130,6 +5442,8 @@
     window.trainPickModel = pickModel;
     window.trainChooser = Chooser;
     window.trainCtx = ctxFeatures;
+    window.trainChooserD = CTX_D;
+    window.trainLight = { sample: lightSample, now: lightNow, word: lightWord, R: () => LR, tick: trackTick, still: trackStill, start: lightRoundStart, end: lightRoundEnd, section: lightSection, text: lightText, cur: () => LIGHT.cur };
     window.trainLock = lockModel;
     window.trainFeat = feat;
     window.trainFace = (ex, ey, ipdNorm, t) => faceUpdate(ex, ey, ipdNorm * vidW(), t, vidW(), vidH());

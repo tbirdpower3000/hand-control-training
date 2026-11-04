@@ -64,6 +64,9 @@ def num(v, lo=0, hi=1e6):
 
 
 CAM_LIM = {'dArm': (0, 80), 'palmCm': (5, 15), 'sphereR': (15, 80)}
+# the room's light during a round, measured from the camera picture (numbers only), and how well the hand was tracked
+LIGHT_LIM = {'luma': (0, 255), 'contrast': (0, 128), 'clipped': (0, 1), 'dark': (0, 1), 'backlight': (0, 10), 'handLuma': (0, 255), 'handContrast': (0, 255), 'bOverR': (0, 5), 'flicker': (0, 100)}
+TRACK_LIM = {'drop': (0, 1), 'score': (0, 1), 'jitter': (0, 200)}
 
 
 def cam_numbers(hands):
@@ -107,6 +110,10 @@ def game_rows(gs):
         o['features'] = [str(x)[:12] for x in ft[:12] if isinstance(x, str)] if isinstance(ft, list) else []
         us = g.get('use')
         o['use'] = {str(k)[:12]: int(v) for k, v in list(us.items())[:16] if isinstance(v, (int, float)) and 0 <= v <= 1e6} if isinstance(us, dict) else None
+        lt = g.get('light')
+        o['light'] = {n: num(lt.get(n), *lim) for n, lim in LIGHT_LIM.items()} if isinstance(lt, dict) else None
+        tr = g.get('track')
+        o['track'] = {n: num(tr.get(n), *lim) for n, lim in TRACK_LIM.items()} if isinstance(tr, dict) else None
         if g['kind'] == 'game':
             for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'tp'):
                 o[n] = num(g.get(n))
