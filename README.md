@@ -1,4 +1,4 @@
-# Hand control training (v0.28)
+# Hand control training (v0.29)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 

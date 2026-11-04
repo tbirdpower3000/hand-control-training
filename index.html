@@ -326,6 +326,17 @@
     padding: 6px 18px;
     white-space: nowrap;
   }
+  @media (max-width: 600px) {
+    #gameEnd dl {
+      grid-template-columns: 1fr;
+    }
+    #gameEnd .row {
+      position: sticky;
+      bottom: 0;
+      background: var(--card, #0f1626);
+      padding-block: 8px;
+    }
+  }
   #gameEnd .row button {
     min-height: 60px;
     font-size: 1.05rem;
@@ -745,7 +756,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.28, 3 Nov 2026">v0.28</div>
+<div id="ver" title="Hand control training, version 0.29, 4 Nov 2026">v0.29</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -765,7 +776,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.28 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.29 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1941,7 +1952,7 @@
         const here = this.n(px, py, items, span, nMax),
           off = Math.hypot(f.x - px, f.y - py),
           inLens = (here.n - 1) / Math.max(1e-6, nMax - 1),
-          k = off > span * 1.6 ? 0.35 : 0.25 * (1 - inLens) + 0.02 * inLens;
+          k = off > span * 1.6 ? 0.35 : 0.25 * (1 - inLens) + (len > 0.5 ? 0.02 : 0) * inLens; // inside a lens, a still hand doesn't drift
         px += (f.x - px) * (closing ? k * 0.2 : k);
         py += (f.y - py) * (closing ? k * 0.2 : k);
         px = clamp(px, 0, innerWidth);
@@ -1960,7 +1971,7 @@
         if (cap) {
           this.lastCap = cap.key;
           this.lastCapT = t;
-        }
+        } else if (closing && this.lastCap) this.lastCapT = t; // while the fingers close, the last target is held for the press
         const recent = cap ? cap.key : this.lastCap && t - this.lastCapT < 150 && items.some((it) => it.key === this.lastCap) ? this.lastCap : null;
         const under = items.find((it) => it.dist(f.x, f.y) <= 0); // the target under the hand itself
         return { x: px, y: py, cap: cap ? cap.key : null, recent, hand: under ? under.key : null, n: fin.n };
@@ -2003,7 +2014,9 @@
         g = 0.45 + 0.55 * u * u * (3 - 2 * u);
       B.x += dx * g;
       B.y += dy * g;
-      const k = 1 - Math.exp(-dt / (v > 500 ? 0.12 : 0.9));
+      // the catch-up to where the hand points runs only while the hand moves: a still hand leaves the cursor where it is,
+      // so it can't creep off a button it was held on
+      const k = (1 - Math.exp(-dt / (v > 500 ? 0.12 : 0.9))) * Math.min(1, v / 120);
       B.x += (f.x - B.x) * k;
       B.y += (f.y - B.y) * k;
       const ox = B.x - f.x,
@@ -2764,6 +2777,7 @@
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
+      $('camCtl').hidden = true; // the webcam controls would cover the end card's buttons on a phone
       SND.finish();
       G.over = { t0: performance.now(), wasPinch: true, openSince: 0 };
       const h = G.hand || HAND,
@@ -2886,7 +2900,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.28',
+        app: 'v0.29',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
