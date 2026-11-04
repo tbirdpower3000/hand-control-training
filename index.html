@@ -352,13 +352,19 @@
       opacity: 0;
     }
   }
-  /* the lighting word under the game HUD: what the camera's picture says about the room's light */
-  #lightChip {
+  /* the lighting word and the distance under the game HUD: what the camera's picture says about the room's light, and
+     how far you sit (from the gap between your eyes) */
+  #hudChips {
     position: fixed;
     top: calc(max(12px, env(safe-area-inset-top, 0px)) + 44px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 6;
+    display: flex;
+    gap: 8px;
+  }
+  #lightChip,
+  #distChip {
     font: 600 0.9rem var(--mono, monospace);
     background: rgba(7, 11, 20, 0.8);
     border: 1px solid var(--line);
@@ -366,7 +372,8 @@
     padding: 3px 12px;
     white-space: nowrap;
   }
-  #lightChip.warn {
+  #lightChip.warn,
+  #distChip.warn {
     border-color: var(--gold);
     color: var(--gold);
   }
@@ -845,7 +852,7 @@
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
 <div id="cur" hidden></div>
-<div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div>
+<div id="hudChips"><div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div><div id="distChip" hidden aria-live="polite" title="How far you sit from the camera, from the gap between your pupils (only the number is kept)">📏 <b id="distWord">–</b></div></div>
 <div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span><i id="gComboL">Combo</i> <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span><i id="gBestL">Best</i> <b id="gBest">0</b></span></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
@@ -898,6 +905,7 @@
       <label><input type="radio" name="sit" value="arm" checked /><span>About an arm's length</span></label>
       <label><input type="radio" name="sit" value="far" /><span>Further back (over 1.5 m)</span></label>
     </div>
+    <p class="muted" id="sitAuto" aria-live="polite">Once the camera is on, this is filled in from the gap between your eyes. You can still change it.</p>
   </fieldset>
   <fieldset>
     <legend>Cursor</legend>
@@ -1724,6 +1732,7 @@
     // per round: how often the hand was lost while the game ran (frames resting below the waist line don't count), the
     // tracker's confidence in which hand it is, and the wobble while the hand was held still
     function lightRoundStart(now) {
+      distRoundStart(now);
       Object.assign(LR, { on: true, t0: now, samples: [], frames: 0, drops: 0, scores: [], jit: [], still: [], lastStill: 0, badSince: 0, hinted: false });
       clearTimeout(LR.pt);
     }
@@ -1763,7 +1772,7 @@
         score: LR.scores.length ? Math.round(median(LR.scores) * 1000) / 1000 : null,
         jitter: LR.jit.length ? Math.round(median(LR.jit) * 100) / 100 : null,
       };
-      return { light, track };
+      return { light, track, distCm: distRoundEnd() };
     }
     // for the end cards
     function lightText(l, tr) {
@@ -1902,6 +1911,98 @@
         FACE.ipd += (ipdPx - FACE.ipd) * k;
         Object.assign(FACE, { t, Wv, Hv });
       }
+    }
+    // ---- how far you sit from the camera: the pupils are about 6.3 cm apart, so with the camera's assumed 63° field of view
+    // the distance is focal length × 6.3 cm ÷ the gap in pixels. It fills in the first card's "where do you sit" answer
+    // (until you choose one yourself), shows in the games' HUD with a tip when you are too close or too far, notices when
+    // you have moved since training, and is logged per round. Only the number is kept.
+    const DIST = { overridden: false, camT0: 0, seen: false, text: '', round: null };
+    function distNow(t) {
+      if (!FACE || !(FACE.ipd > 2)) return null;
+      if ((t ?? performance.now()) - FACE.t > 1500) return null;
+      return (focalPx(FACE.Wv || vidW()) * PUPIL_CM) / FACE.ipd;
+    }
+    const sitFor = (cm) => (cm < 60 ? 'close' : cm > 150 ? 'far' : 'arm');
+    const SIT_WORDS = { close: 'close to the camera', arm: 'about an arm’s length', far: 'further back' };
+    function distSay(txt) {
+      if (txt === DIST.text) return;
+      DIST.text = txt;
+      $('sitAuto').textContent = txt;
+    }
+    // the first card's answer, from the eyes; a choice you make yourself sticks for this visit
+    function distAuto(t) {
+      const cm = distNow(t);
+      if (cm == null) {
+        if (!DIST.seen && DIST.camT0 && t - DIST.camT0 > 5000) distSay('Couldn’t see your eyes, so this is your own choice. Face the camera to have it measured.');
+        return null;
+      }
+      DIST.seen = true;
+      const sit = sitFor(cm),
+        r = Math.round(cm);
+      if (DIST.overridden) distSay(`You chose this; measured from your eyes you are about ${r} cm from the camera.`);
+      else {
+        const inp = document.querySelector(`input[name=sit][value=${sit}]`);
+        if (inp && !inp.checked) inp.checked = true; // setting it here fires no change event, so it isn't taken as your choice
+        distSay(`≈ ${r} cm — ${SIT_WORDS[sit]} (measured from your eyes)`);
+      }
+      return cm;
+    }
+    document.querySelectorAll('input[name=sit]').forEach((i) => i.addEventListener('change', () => (DIST.overridden = true)));
+    // during a game: the chip, a tip when too close (< 40 cm) or too far (> 150 cm) for 3 s (each once a round), and a note
+    // once a round when you sit more than 20% nearer or further than when this hand was trained, for 5 s
+    function distRoundStart(now) {
+      clearTimeout(DIST.round && DIST.round.pt);
+      DIST.round = { t0: now, samples: [], lastS: 0, closeSince: 0, farSince: 0, hintedClose: false, hintedFar: false, movedSince: 0, movedTold: false, trainCm: undefined, pt: 0 };
+    }
+    function distShow(now) {
+      const D = DIST.round;
+      if (!D || (step !== 'game' && step !== 'carry')) return;
+      const cm = distNow(now);
+      if (cm == null) return;
+      if (now - D.lastS >= 250) {
+        D.samples.push(cm);
+        D.lastS = now;
+      }
+      const close = cm < 40,
+        far = cm > 150;
+      $('distChip').hidden = false;
+      $('distWord').textContent = `≈ ${Math.round(cm)} cm`;
+      $('distChip').classList.toggle('warn', close || far);
+      const say = (a, b) => {
+        prompt(a, b);
+        clearTimeout(D.pt);
+        D.pt = setTimeout(() => (step === 'game' || step === 'carry') && ($('prompt').hidden = true), 5000);
+      };
+      D.closeSince = close ? D.closeSince || now : 0;
+      D.farSince = far ? D.farSince || now : 0;
+      if (close && !D.hintedClose && now - D.closeSince >= 3000) {
+        D.hintedClose = true;
+        say('📏 Move back a little', 'Your hand can leave the picture this close to the camera.');
+      } else if (far && !D.hintedFar && now - D.farSince >= 3000) {
+        D.hintedFar = true;
+        say('📏 Move closer', 'Tracking gets noisy this far from the camera.');
+      }
+      const st = step === 'game' ? G : C,
+        h = st && st.hand;
+      if (D.trainCm === undefined && h) D.trainCm = (profileHand(h) || {}).trainCm || null;
+      if (!D.trainCm || D.movedTold) return;
+      const moved = Math.abs(cm / D.trainCm - 1) > 0.2;
+      D.movedSince = moved ? D.movedSince || now : 0;
+      if (moved && now - D.movedSince >= 5000) {
+        D.movedTold = true;
+        const was = Math.round(D.trainCm),
+          is = Math.round(cm);
+        if (!st.mapping || st.mapping === 'flat') say('📏 You’ve moved since training', `You trained about ${was} cm from the camera and are now about ${is} cm away. A quick retrain will fit the new distance.`);
+        else say('📏 You moved; the cursor has adjusted', `This camera model measures from your eyes, so sitting about ${is} cm away instead of ${was} cm is allowed for.`);
+      }
+    }
+    function distRoundEnd() {
+      const D = DIST.round;
+      DIST.round = null;
+      $('distChip').hidden = true;
+      if (!D) return null;
+      clearTimeout(D.pt);
+      return D.samples.length ? Math.round(median(D.samples) * 10) / 10 : null;
     }
     // one frame's geometry: the depths of the face and the hand (cm) and the pixel positions. The face's depth comes from
     // the pupil gap; seen in the last 1.5 s it is used as is, for up to 10 s more the hand's depth comes from the palm's
@@ -2391,6 +2492,8 @@
       }
       // the camera models' calibration (null when the eyes weren't seen at every hold)
       R.cam = camCalibrate(S.holds, HAND);
+      const dn = distNow();
+      R.trainCm = dn != null ? Math.round(dn) : null; // how far this hand was trained from the camera, for the "you moved" note
       // the step's rating is the average of the four corner answers (or what was measured, if none were answered)
       const cs = R.corners || [],
         rated = cs.filter((c) => !c.auto);
@@ -3294,8 +3397,10 @@
       const fsR = featureSection('Right'),
         fsL = featureSection('Left');
       const lsR = lightSection('Right'),
-        lsL = lightSection('Left');
-      $('cmpBody').insertAdjacentHTML('beforeend', `${fsR.html}${fsL.html}${lsR.html}${lsL.html}<p class="muted">Lighting is measured from the camera picture four times a second (only the numbers are kept). The fits need 6 rounds with lighting measured; a slope with |t| ≥ 2 is a clear effect. The feature trials allow for the light too, so a brighter round isn't credited to a feature.</p><p class="muted">Each feature is on in half the rounds, by a balanced draw. The effect is from a least-squares fit over the rounds (with the hand model allowed for); “implement in the atlas” needs t ≥ 2; “remove” means a clear loss, or no effect after 12 rounds with it on. Use counts are episodes (targets) played with it on.</p><div class="row"><button type="button" id="cmpCopy">Copy suggestions</button></div>`);
+        lsL = lightSection('Left'),
+        dsR = distSection('Right'),
+        dsL = distSection('Left');
+      $('cmpBody').insertAdjacentHTML('beforeend', `${fsR.html}${fsL.html}${lsR.html}${lsL.html}${dsR.html}${dsL.html}<p class="muted">Distance is measured from the gap between your pupils (only the number is kept); the feature trials allow for it like the light.</p><p class="muted">Lighting is measured from the camera picture four times a second (only the numbers are kept). The fits need 6 rounds with lighting measured; a slope with |t| ≥ 2 is a clear effect. The feature trials allow for the light too, so a brighter round isn't credited to a feature.</p><p class="muted">Each feature is on in half the rounds, by a balanced draw. The effect is from a least-squares fit over the rounds (with the hand model allowed for); “implement in the atlas” needs t ≥ 2; “remove” means a clear loss, or no effect after 12 rounds with it on. Use counts are episodes (targets) played with it on.</p><div class="row"><button type="button" id="cmpCopy">Copy suggestions</button></div>`);
       $('cmpCopy').onclick = () => {
         const txt = fsR.text + '\n\n' + fsL.text;
         try {
@@ -3352,7 +3457,14 @@
           avgOf = (a) => (a.length ? a.reduce((p_, q) => p_ + q, 0) / a.length : 0),
           mL = avgOf(lit.map((x) => x.light.luma)),
           mC = avgOf(lit.map((x) => x.light.handContrast).filter((v) => v != null && isFinite(v))),
-          covCols = (x) => (cov ? [(x.light && isFinite(x.light.luma) ? x.light.luma : mL) / 100, (x.light && x.light.handContrast != null && isFinite(x.light.handContrast) ? x.light.handContrast : mC) / 100] : []),
+          // and how far the person sat, allowed for in the same way (per 100 cm)
+          far_ = use.filter((x) => x.distCm != null && isFinite(x.distCm)),
+          dcov = far_.length >= 3 && far_.length >= use.length / 2,
+          mD = avgOf(far_.map((x) => x.distCm)),
+          covCols = (x) => [
+            ...(cov ? [(x.light && isFinite(x.light.luma) ? x.light.luma : mL) / 100, (x.light && x.light.handContrast != null && isFinite(x.light.handContrast) ? x.light.handContrast : mC) / 100] : []),
+            ...(dcov ? [(x.distCm != null && isFinite(x.distCm) ? x.distCm : mD) / 100] : []),
+          ],
           X = use.map((x) => [1, ...FEATURE_IDS.map((id) => (x.features.includes(id) ? 1 : 0)), ...modelCols.map((m) => (x.model === m ? 1 : 0)), ...mapCols.map((m) => (x.mapping === m ? 1 : 0)), ...covCols(x)]),
           y = use.map(metric),
           fit = X.length ? olsFit(X, y) : null,
@@ -3481,6 +3593,38 @@
           .join('')}</tbody></table>`;
       return { buckets, reg, html, n: rows.length };
     }
+    // distance and tracking: the rounds grouped by how far the person sat, with the same tracking measures
+    const DIST_BUCKETS = [
+      ['under 50 cm', 0, 50],
+      ['50–80 cm', 50, 80],
+      ['80–120 cm', 80, 120],
+      ['over 120 cm', 120, 1e9],
+    ];
+    function distSection(h) {
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && x.distCm != null && isFinite(x.distCm)),
+        avg = (a) => {
+          const v = a.filter((q) => q != null && isFinite(q));
+          return v.length ? v.reduce((p_, q) => p_ + q, 0) / v.length : null;
+        },
+        f1 = (v, d) => (v == null ? '–' : v.toFixed(d)),
+        buckets = {};
+      for (const [name, lo, hi] of DIST_BUCKETS) {
+        const rs = rows.filter((x) => x.distCm >= lo && x.distCm < hi);
+        buckets[name] = {
+          rounds: rs.length,
+          drop: avg(rs.map((x) => x.track && x.track.drop)),
+          jitter: avg(rs.map((x) => x.track && x.track.jitter)),
+          tp: avg(rs.filter((x) => x.kind === 'game').map((x) => x.tp)),
+          errPx: avg(rs.filter((x) => x.kind === 'carry').map((x) => x.errPx)),
+        };
+      }
+      const html = `<h3>Distance and tracking, ${h.toLowerCase()} hand</h3>
+        <table class="cmp"><thead><tr><th>distance</th><th>rounds</th><th>hand lost</th><th>wobble when still (px)</th><th>pop throughput (bits/s)</th><th>carry placement (px)</th></tr></thead><tbody>${DIST_BUCKETS.map(([name]) => {
+          const q = buckets[name];
+          return `<tr><th>${name}</th><td>${q.rounds}</td><td>${q.drop == null ? '–' : Math.round(q.drop * 100) + '%'}</td><td>${f1(q.jitter, 1)}</td><td>${f1(q.tp, 2)}</td><td>${f1(q.errPx, 0)}</td></tr>`;
+        }).join('')}</tbody></table>`;
+      return { buckets, html, n: rows.length };
+    }
     function lockModel(h, id) {
       try {
         const p = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -3551,6 +3695,7 @@
         pinchMap: R.pinchMap || null,
         reach: R.reach || null,
         cam: R.cam || null,
+        trainCm: R.trainCm ?? null,
         ratings: R.ratings || null,
         corners: R.corners || null,
         measured: {
@@ -3689,6 +3834,7 @@
         const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, mapping: x.mapping ? String(x.mapping).slice(0, 8) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null, features: Array.isArray(x.features) ? x.features.slice(0, 12).map((id) => String(id).slice(0, 12)) : [], use: x.use && typeof x.use === 'object' ? Object.fromEntries(Object.entries(x.use).slice(0, 16).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
         o.light = x.light && typeof x.light === 'object' ? Object.fromEntries(LIGHT_KEYS.map((k) => [k, r3n(x.light[k])])) : null;
         o.track = x.track && typeof x.track === 'object' ? { drop: r3n(x.track.drop), score: r3n(x.track.score), jitter: r3n(x.track.jitter) } : null;
+        o.distCm = r3n(x.distCm);
         if (x.kind === 'game') {
           for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'effWHits', 'tp']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
@@ -4611,7 +4757,7 @@
         lt = lightRoundEnd();
       saveChooser(C, h);
       endTrialRound(C, h);
-      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null, mapping: C.mapping || null });
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null, mapping: C.mapping || null, distCm: lt.distCm ?? null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -4665,7 +4811,7 @@
         lt = lightRoundEnd();
       saveChooser(G, h);
       endTrialRound(G, h);
-      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), effWHits: effWidthHits(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null });
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), effWHits: effWidthHits(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null, distCm: lt.distCm ?? null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -5013,6 +5159,12 @@
     async function begin() {
       $('intro').hidden = true;
       $('cur').hidden = false;
+      // the distance answer: if the face tracker is running and you haven't chosen, give it up to 1.5 s to see your eyes
+      if (faceLm && !DIST.overridden && distNow() == null) {
+        const t0 = performance.now();
+        while (distNow() == null && performance.now() - t0 < 1500) await new Promise((r) => setTimeout(r, 100));
+      }
+      distAuto(performance.now());
       R.ans = { hand: pick('hand'), steady: pick('steady'), sit: pick('sit') };
       setTheme(pick('theme'));
       sndOn = pick('snd') !== 'off';
@@ -5205,6 +5357,8 @@
           }
         } catch (e) {}
       }
+      distAuto(now);
+      distShow(now);
       const r = landmarker.detectForVideo(v, now),
         all = (r.landmarks || []).map((L, i) => ({ L, W: (r.worldLandmarks || [])[i], label: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).categoryName, score: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).score }));
       // the hand in use: of the hands in view, the one on the trained hand's side of your midline, preferring the one the
@@ -5328,6 +5482,7 @@
         return false;
       }
       m.textContent = '';
+      DIST.camT0 = DIST.camT0 || performance.now();
       if (!looping) {
         looping = true;
         loop();
@@ -5482,6 +5637,7 @@
     window.trainLock = lockModel;
     window.trainFeat = feat;
     window.trainFace = (ex, ey, ipdNorm, t) => faceUpdate(ex, ey, ipdNorm * vidW(), t, vidW(), vidH());
+    window.trainDist = { now: distNow, auto: distAuto, show: distShow, start: distRoundStart, end: distRoundEnd, section: distSection, state: () => DIST, focal: () => focalPx(vidW()), setFaceLm: (v) => (faceLm = v) };
     window.trainCamCalibrate = camCalibrate;
     window.trainQuadFit = quadFit;
     window.trainQT = QT;

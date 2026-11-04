@@ -114,6 +114,8 @@ def game_rows(gs):
         o['light'] = {n: num(lt.get(n), *lim) for n, lim in LIGHT_LIM.items()} if isinstance(lt, dict) else None
         tr = g.get('track')
         o['track'] = {n: num(tr.get(n), *lim) for n, lim in TRACK_LIM.items()} if isinstance(tr, dict) else None
+        # how far the person sat from the camera this round (cm, from the gap between the pupils)
+        o['distCm'] = num(g.get('distCm'), 20, 300)
         if g['kind'] == 'game':
             for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'effWHits', 'tp'):
                 o[n] = num(g.get(n))
