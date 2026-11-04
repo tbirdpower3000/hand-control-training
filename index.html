@@ -797,12 +797,12 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.32, 4 Nov 2026">v0.32</div>
+<div id="ver" title="Hand control training, version 0.33, 4 Nov 2026">v0.33</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
 <div id="cur" hidden></div>
-<div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span>Combo <b id="gCombo">0</b></span><span>Best <b id="gBest">0</b></span></div>
+<div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span>Combo <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span>Best <b id="gBest">0</b></span></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
   <p id="askQ"></p>
@@ -817,7 +817,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.32 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.33 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1220,9 +1220,259 @@
     }
     const MOT = new Motion();
     const fpW = new OneEuro(3, 1);
-    function feat(L, t, W) {
-      const ax = (L[0].x + L[5].x + L[9].x + L[13].x + L[17].x) / 5,
-        ay = (L[0].y + L[5].y + L[9].y + L[13].y + L[17].y) / 5;
+    // ---- hand models: ways of turning the 21 tracked points into the one point the cursor follows. Only that point
+    // differs between them; the pinch is measured the same way for all, so the pinch calibration stays valid. The games
+    // try them in turn and compare; an adaptive mode learns which one to use for which task and hand position. To add
+    // a model, add one more object here (id, a short label, and cursor(L) -> a point in the camera picture, 0..1).
+    const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const HAND_MODELS = {
+      centre: {
+        id: 'centre',
+        label: 'palm centre',
+        // the middle of the wrist and the four knuckles: the steadiest point, but it sits a palm's length behind the fingertip
+        cursor: (L) => ({ x: (L[0].x + L[5].x + L[9].x + L[13].x + L[17].x) / 5, y: (L[0].y + L[5].y + L[9].y + L[13].y + L[17].y) / 5 }),
+      },
+      tip: {
+        id: 'tip',
+        label: 'index fingertip',
+        // the fingertip itself: points exactly, but it is the jumpiest landmark and it moves when the fingers close
+        cursor: (L) => ({ x: L[8].x, y: L[8].y }),
+      },
+      ray: {
+        id: 'ray',
+        label: 'virtual fingertip',
+        // a fingertip rebuilt from the palm: from the index knuckle, along the wrist-to-knuckle line, by the finger's length.
+        // It points like the fingertip but takes its direction from the whole palm, so a wobbling finger doesn't move it
+        cursor: (L) => {
+          const dx = L[5].x - L[0].x,
+            dy = L[5].y - L[0].y,
+            l = Math.hypot(dx, dy) || 1e-6,
+            fl = d2(L[5], L[6]) + d2(L[6], L[7]) + d2(L[7], L[8]);
+          return { x: L[5].x + (dx / l) * fl, y: L[5].y + (dy / l) * fl };
+        },
+      },
+      palm: {
+        id: 'palm',
+        label: 'fitted palm',
+        // the palm as a rigid shape: a five-point template (wrist and four knuckles) learned for this person is fitted to
+        // each frame by the best shift, turn and size (2D Procrustes), which averages the noise of five points into one
+        // frame; the cursor sits where the fingertip usually is in that frame (an offset learned while the hand is open
+        // and still). The fit's residual (how badly the five points fit a rigid palm) is kept for later gating.
+        st: {},
+        cursor(L, side) {
+          const S = (this.st[side || 'Right'] = this.st[side || 'Right'] || { T: null, o: null, prev: null }),
+            ids = [0, 5, 9, 13, 17],
+            P = ids.map((i) => [L[i].x, L[i].y]),
+            c = [P.reduce((a, q) => a + q[0], 0) / 5, P.reduce((a, q) => a + q[1], 0) / 5],
+            sc = Math.sqrt(P.reduce((a, q) => a + (q[0] - c[0]) ** 2 + (q[1] - c[1]) ** 2, 0) / 5) || 1e-6,
+            Pn = P.map((q) => [(q[0] - c[0]) / sc, (q[1] - c[1]) / sc]);
+          if (!S.T) S.T = Pn.map((q) => q.slice());
+          // the turn from the template to this frame (Kabsch in 2D)
+          let a = 0,
+            b = 0;
+          for (let i = 0; i < 5; i++) {
+            a += S.T[i][0] * Pn[i][0] + S.T[i][1] * Pn[i][1];
+            b += S.T[i][0] * Pn[i][1] - S.T[i][1] * Pn[i][0];
+          }
+          const th = Math.atan2(b, a),
+            cs = Math.cos(th),
+            sn = Math.sin(th),
+            rot = (q) => [q[0] * cs - q[1] * sn, q[0] * sn + q[1] * cs],
+            unrot = (q) => [q[0] * cs + q[1] * sn, -q[0] * sn + q[1] * cs],
+            F = S.T.map((q) => {
+              const r = rot(q);
+              return [c[0] + sc * r[0], c[1] + sc * r[1]];
+            });
+          this.rms = Math.sqrt(F.reduce((s_, q, i) => s_ + (q[0] - P[i][0]) ** 2 + (q[1] - P[i][1]) ** 2, 0) / 5) / sc;
+          // the palm's size and turn change slowly, so they are averaged over a few frames (about 0.1 s): a frame's
+          // noise in them would otherwise swing the fingertip, which sits a palm's length away, like a lever
+          if (S.sc == null) {
+            S.sc = sc;
+            S.cs = cs;
+            S.sn = sn;
+          } else {
+            S.sc += 0.1 * (sc - S.sc);
+            S.cs += 0.3 * (cs - S.cs);
+            S.sn += 0.3 * (sn - S.sn);
+            const nl = Math.hypot(S.cs, S.sn) || 1;
+            S.cs /= nl;
+            S.sn /= nl;
+          }
+          const rotS = (q) => [q[0] * S.cs - q[1] * S.sn, q[0] * S.sn + q[1] * S.cs],
+            mcpS = rotS(S.T[1]),
+            Fm = [c[0] + S.sc * mcpS[0], c[1] + S.sc * mcpS[1]];
+          // open and still: learn the template and the fingertip's place in it, slowly
+          const open = d2(L[4], L[8]) / (d2(L[0], L[9]) || 1e-3) > 0.5,
+            still = S.prev ? Math.hypot(c[0] - S.prev[0], c[1] - S.prev[1]) < 0.004 : false;
+          S.prev = c;
+          const tipF = unrot([(L[8].x - F[1][0]) / sc, (L[8].y - F[1][1]) / sc]);
+          if (!S.o) S.o = tipF;
+          if (open && still) {
+            for (let i = 0; i < 5; i++) {
+              const u = unrot(Pn[i]);
+              S.T[i][0] += 0.02 * (u[0] - S.T[i][0]);
+              S.T[i][1] += 0.02 * (u[1] - S.T[i][1]);
+            }
+            S.o[0] += 0.02 * (tipF[0] - S.o[0]);
+            S.o[1] += 0.02 * (tipF[1] - S.o[1]);
+          }
+          const r = rotS(S.o);
+          return { x: Fm[0] + S.sc * r[0], y: Fm[1] + S.sc * r[1] };
+        },
+      },
+    };
+    const MODEL_IDS = Object.keys(HAND_MODELS);
+    let MODEL = HAND_MODELS.centre,
+      MSW = null, // a switch in progress: the old point's offset, fading over a quarter second so the cursor glides
+      LASTL = null;
+    function setModel(id, t) {
+      const m = HAND_MODELS[id] || HAND_MODELS.centre;
+      if (m === MODEL) return;
+      if (LASTL && t != null) {
+        const a = MODEL.cursor(LASTL, CUR_SIDE),
+          b = m.cursor(LASTL, CUR_SIDE);
+        MSW = { dx: a.x - b.x, dy: a.y - b.y, t0: t };
+      }
+      MODEL = m;
+    }
+    // a neutral letter for each model, drawn at random once per hand, so you can't tell which is which while they're on trial
+    function modelLetters(h) {
+      let m = {};
+      try {
+        m = JSON.parse(localStorage.getItem('handModelLetters') || '{}');
+      } catch (e) {}
+      if (!m[h] || MODEL_IDS.some((id) => !m[h][id])) {
+        const ls = ['A', 'B', 'C', 'D', 'E', 'F'].slice(0, MODEL_IDS.length).sort(() => Math.random() - 0.5);
+        m[h] = Object.fromEntries(MODEL_IDS.map((id, i) => [id, ls[i]]));
+        try {
+          localStorage.setItem('handModelLetters', JSON.stringify(m));
+        } catch (e) {}
+      }
+      return m[h];
+    }
+    const modelTag = (h, id) => (id === 'adaptive' ? 'adaptive' : 'model ' + (modelLetters(h)[id] || '?'));
+    function profileHand(h) {
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+        return p && p.hands && p.hands[h] ? p.hands[h] : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    // which model a round plays: a locked choice from the profile, otherwise the one with the fewest rounds on this hand
+    // (ties at random); "adaptive" joins the draw once every model has had two rounds
+    function pickModel(h) {
+      const q = profileHand(h);
+      if (q && q.model && (HAND_MODELS[q.model] || q.model === 'adaptive')) return { id: q.model, locked: true };
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h),
+        n = Object.fromEntries(MODEL_IDS.map((id) => [id, rows.filter((x) => x.model === id).length])),
+        ids = [...MODEL_IDS];
+      if (Math.min(...Object.values(n)) >= 2) {
+        ids.push('adaptive');
+        n.adaptive = rows.filter((x) => x.model === 'adaptive').length;
+      }
+      const least = Math.min(...ids.map((id) => n[id])),
+        cands = ids.filter((id) => n[id] === least);
+      return { id: cands[(Math.random() * cands.length) | 0], locked: false };
+    }
+    // ---- the adaptive chooser: a contextual bandit (LinUCB). Before each episode (one target) it looks at the situation
+    // (the task, how tilted and how far the hand is, which hand, how fast it is moving, the target's size) and picks the
+    // model whose estimated reward plus a bonus for uncertainty is highest; after the episode it learns from how it went.
+    // Per model it keeps a d×d matrix A and a vector b; the estimate is θ = A⁻¹b. Saved in the profile per hand.
+    const CTX_D = 9;
+    class Chooser {
+      constructor(arms, saved) {
+        this.arms = arms;
+        this.d = CTX_D;
+        this.alpha = 0.6;
+        this.A = {};
+        this.b = {};
+        this.n = {};
+        for (const a of arms) {
+          const sv = saved && saved.arms && saved.arms[a];
+          this.A[a] = sv && Array.isArray(sv.A) && sv.A.length === this.d ? sv.A.map((r) => r.slice()) : Chooser.ident(this.d);
+          this.b[a] = sv && Array.isArray(sv.b) && sv.b.length === this.d ? sv.b.slice() : new Array(this.d).fill(0);
+          this.n[a] = (sv && sv.n) || 0;
+        }
+      }
+      static ident(d) {
+        return Array.from({ length: d }, (_, i) => Array.from({ length: d }, (__, j) => (i === j ? 1 : 0)));
+      }
+      // Gauss–Jordan inverse; d is small, so this is cheap
+      static inv(M) {
+        const d = M.length,
+          a = M.map((r, i) => [...r, ...Chooser.ident(d)[i]]);
+        for (let c = 0; c < d; c++) {
+          let piv = c;
+          for (let r = c + 1; r < d; r++) if (Math.abs(a[r][c]) > Math.abs(a[piv][c])) piv = r;
+          [a[c], a[piv]] = [a[piv], a[c]];
+          const pv = a[c][c] || 1e-9;
+          for (let j = 0; j < 2 * d; j++) a[c][j] /= pv;
+          for (let r = 0; r < d; r++) {
+            if (r === c) continue;
+            const f = a[r][c];
+            if (f) for (let j = 0; j < 2 * d; j++) a[r][j] -= f * a[c][j];
+          }
+        }
+        return a.map((r) => r.slice(d));
+      }
+      score(a, x) {
+        const Ai = Chooser.inv(this.A[a]),
+          th = Ai.map((r) => r.reduce((s, v, j) => s + v * this.b[a][j], 0)),
+          mean = th.reduce((s, v, i) => s + v * x[i], 0),
+          Ax = Ai.map((r) => r.reduce((s, v, j) => s + v * x[j], 0)),
+          vr = x.reduce((s, v, i) => s + v * Ax[i], 0);
+        return mean + this.alpha * Math.sqrt(Math.max(0, vr));
+      }
+      choose(x) {
+        let best = this.arms[0],
+          bs = -Infinity;
+        for (const a of this.arms) {
+          const sc = this.score(a, x) + Math.random() * 1e-6;
+          if (sc > bs) {
+            bs = sc;
+            best = a;
+          }
+        }
+        return best;
+      }
+      update(a, x, r) {
+        r = clamp(r, 0, 1);
+        for (let i = 0; i < this.d; i++) {
+          for (let j = 0; j < this.d; j++) this.A[a][i][j] += x[i] * x[j];
+          this.b[a][i] += r * x[i];
+        }
+        this.n[a]++;
+      }
+      save() {
+        return { d: this.d, arms: Object.fromEntries(this.arms.map((a) => [a, { A: this.A[a].map((r) => r.map((v) => +v.toFixed(4))), b: this.b[a].map((v) => +v.toFixed(4)), n: this.n[a] }])) };
+      }
+    }
+    // the situation, as numbers 0..1: task (press / carry / turn), how far the palm tilts out of the picture (its length
+    // against its width, relative to the flattest seen), which hand, how near (palm width against the largest seen), how
+    // fast the hand moves, the target's size, and a constant
+    const CTX = { ratioMax: 0, widthMax: 0 };
+    function ctxFeatures(task, f, side, targetPx) {
+      const ratio = f.palmW > 1e-4 ? f.palm / f.palmW : 0;
+      CTX.ratioMax = Math.max(ratio, CTX.ratioMax * 0.9995);
+      CTX.widthMax = Math.max(f.palmW || 0, CTX.widthMax * 0.9995);
+      const tilt = CTX.ratioMax > 0 ? clamp(1 - ratio / CTX.ratioMax, 0, 1) : 0,
+        dist = CTX.widthMax > 0 ? clamp((f.palmW || 0) / CTX.widthMax, 0, 1) : 1;
+      return [task === 'press' ? 1 : 0, task === 'carry' ? 1 : 0, task === 'turn' ? 1 : 0, +tilt.toFixed(3), side === 'Left' ? 1 : 0, +dist.toFixed(3), +clamp(f.fast || 0, 0, 1).toFixed(3), +clamp((targetPx || 60) / 160, 0, 1).toFixed(3), 1];
+    }
+    const timeFactor = (ms) => clamp(1.5 - ms / 4000, 0.5, 1);
+    let CUR_SIDE = 'Right';
+    function feat(L, t, W, side) {
+      LASTL = L;
+      if (side === 'Left' || side === 'Right') CUR_SIDE = side;
+      let pt = MODEL.cursor(L, CUR_SIDE);
+      if (MSW) {
+        const k = Math.exp(-(t - MSW.t0) / 250);
+        if (k < 0.02) MSW = null;
+        else pt = { x: pt.x + MSW.dx * k, y: pt.y + MSW.dy * k };
+      }
+      const ax = pt.x,
+        ay = pt.y;
       const pr = fp.f(d3(L[4], L[8]) / (d3(L[0], L[9]) || 1e-3), t);
       const prW = W && W.length === 21 ? fpW.f(d3(W[4], W[8]) / (d3(W[0], W[9]) || 1e-3), t) : null;
       if (pinchOn ? pr > pOff : pr < pOn) pinchOn = !pinchOn;
@@ -1257,6 +1507,9 @@
         pr,
         pinch: pinchOn,
         prW,
+        palm: d2(L[0], L[9]),
+        palmW: d2(L[5], L[17]),
+        fitRms: MODEL.rms != null ? +MODEL.rms.toFixed(4) : null,
         noise: SPEC.info.noise,
         fast: mo.fast,
         rx: clamp((1 - ax - reach.x0) / reach.xs, -0.2, 1.2) * innerWidth,
@@ -2226,6 +2479,14 @@
         ['Carry game: time per delivery', (a, g, c) => avg(last(c, 5), (x) => x.timeMs), 's'],
         ['Carry game: path straightness', (a, g, c) => avg(last(c, 5), (x) => x.eff), '%'],
       ];
+      for (const id of [...MODEL_IDS, 'adaptive']) {
+        const name = id === 'adaptive' ? 'adaptive' : HAND_MODELS[id].label,
+          of = (g, c) => [...g, ...c].filter((x) => x.model === id);
+        rows.push([`Model ${name}: rounds`, (a, g, c) => of(g, c).length, 'n']);
+        rows.push([`Model ${name}: pop throughput (bits/s)`, (a, g, c) => avg(g.filter((x) => x.model === id), (x) => x.tp), 'x']);
+        rows.push([`Model ${name}: carry placement (px)`, (a, g, c) => avg(c.filter((x) => x.model === id), (x) => x.errPx), 'i']);
+        rows.push([`Model ${name}: carry slips per round`, (a, g, c) => avg(c.filter((x) => x.model === id), (x) => x.slips), '1']);
+      }
       const tbl = rows
         .map(([label, f, kind]) => {
           const r = f(by.Right, gm.Right, cr.Right),
@@ -2240,11 +2501,34 @@
         last(a, 12)
           .map((x) => (x.ease == null ? '·' : '▁▂▃▄▅▆▇'[Math.max(0, Math.min(6, Math.round(x.ease) - 1))]))
           .join('') || '–';
+      const lockSel = (h) => {
+        const q = profileHand(h),
+          cur = (q && q.model) || '',
+          lt = modelLetters(h),
+          opts = [['', 'Keep trialling'], ['adaptive', 'Adaptive (learns per task)'], ...MODEL_IDS.map((id) => [id, `Model ${lt[id]}: ${HAND_MODELS[id].label}`])];
+        return `<label>${h} hand <select data-lock="${h}" ${q ? '' : 'disabled title="Train this hand first"'}>${opts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+      };
       $('cmpBody').innerHTML = `<table class="cmp"><thead><tr><th></th><th>Right hand</th><th>Left hand</th></tr></thead><tbody>${tbl}</tbody></table>
         <p class="muted">Averages of the last five sessions for each hand. Press accuracy is the share of pinches that landed on the button.</p>
-        <dl><dt>How easy, recent sessions</dt><dd>Right ${spark(by.Right)}<br />Left ${spark(by.Left)}</dd></dl>`;
+        <dl><dt>How easy, recent sessions</dt><dd>Right ${spark(by.Right)}<br />Left ${spark(by.Left)}</dd></dl>
+        <dl><dt>Hand model</dt><dd>On trial, the games take turns between the models (shown as letters in the game, right: ${MODEL_IDS.map((id) => modelLetters('Right')[id] + ' = ' + HAND_MODELS[id].label).join(', ')}; left: ${MODEL_IDS.map((id) => modelLetters('Left')[id] + ' = ' + HAND_MODELS[id].label).join(', ')}). Lock one, or let the adaptive chooser pick per target.<br />${lockSel('Right')} &nbsp; ${lockSel('Left')}</dd></dl>`;
+      $('cmpBody').querySelectorAll('select[data-lock]').forEach((sel) => {
+        sel.onchange = () => lockModel(sel.dataset.lock, sel.value);
+      });
       ['intro', 'done', 'share', 'gameEnd'].forEach((id) => ($(id).hidden = true));
       $('compare').hidden = false;
+    }
+    function lockModel(h, id) {
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!p || !p.hands || !p.hands[h]) return false;
+        if (id) p.hands[h].model = id;
+        else delete p.hands[h].model;
+        localStorage.setItem(KEY, JSON.stringify(p));
+        return true;
+      } catch (e) {
+        return false;
+      }
     }
     $('cmpBack').onclick = () => {
       $('compare').hidden = true;
@@ -2438,7 +2722,7 @@
     function gameRows(n) {
       const rows = history().filter((x) => x.kind === 'game' || x.kind === 'carry').slice(-n);
       return rows.map((x) => {
-        const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained };
+        const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
         if (x.kind === 'game') {
           for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'tp']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
@@ -2650,6 +2934,7 @@
         G.profiled = applyProfile(label);
         $('gBest').textContent = popBest(label);
         $('prompt').hidden = true;
+        startModelRound(G, label, t);
       }
       let best = null,
         bd = 1e9;
@@ -2663,6 +2948,8 @@
       // each bubble is a field that moves with it; the captured bubble is the one a pinch pops
       const fp = FLD.step(f, G.bubbles.map((b) => ({ key: b, cx: bx(b), cy: b.y, dist: (x, y) => Math.hypot(x - bx(b), y - b.y) - b.r })), t, curSnap, curHold);
       showCur(fp.x, fp.y);
+      // adaptive rounds: a new episode starts when the hand is open and slow with a bubble to aim at
+      if (G.chooser && !G.epi && !f.pinch && (f.fast || 0) < 0.3 && best) episodeStart(G, 'press', f, best.r * 2, t);
       G.bubbles.forEach((b) => b.el.classList.toggle('hot', b === fp.cap));
       // samples for tuning: the pinch ratio of an open hand while aiming at a bubble, the firmest point of each pinch, and
       // how far the cursor slid in the 150 ms before a press (pinching drags the palm point)
@@ -2690,9 +2977,11 @@
         // press); otherwise a bubble within its invisible hit area, which is bigger than the drawn bubble for the small ones
         // (at least 40 px from the centre). Precision is measured from where your hand pointed (f), not the pulled cursor.
         const hit = pressTarget(fp, fresh, f, t, G);
+        G.hitForgiven = !!hit && hit !== fp.cap; // a press that counted through forgiveness (late, early or by the vote)
         if (hit && G.bubbles.includes(hit)) popBubble(hit, t, f);
         else if (fresh && best && bd < Math.max(14, 40 - best.r)) {
           G.buf = 0;
+          G.hitForgiven = true;
           popBubble(best, t, f);
         } else if (fresh && best) G.bufMiss = { bd, best };
         // the press found nothing, even after waiting for an early one: now it's a miss
@@ -2706,6 +2995,7 @@
             G.missPress++;
             G.combo = 0;
             note(330, 0, 0.04, 0.15);
+            episodeEnd(G, 0, t);
           }
         }
       }
@@ -2719,6 +3009,7 @@
     function popBubble(b, t, f) {
       G.bubbles.splice(G.bubbles.indexOf(b), 1);
       szStat(b.size).hit++;
+      episodeEnd(G, G.hitForgiven ? 0.5 : 1, t);
       if (f) (G.offs = G.offs || []).push([f.x - bx(b), f.y - b.y]); // where the pop landed against the centre
       // for throughput: how far this pop was from the last one (the move's amplitude) and how long it took
       if (G.lastPop) (G.moves = G.moves || []).push([Math.hypot(bx(b) - G.lastPop[0], b.y - G.lastPop[1]), Math.max(0.05, (t - G.lastPop[2]) / 1000)]);
@@ -2845,7 +3136,7 @@
       }
       q.k = k;
       if (kW) q.kW = kW;
-      q.gameTune = { t: new Date().toISOString(), acc, tp, pending: true, before, rounds: ((T && T.rounds) || 0) + 1 };
+      q.gameTune = { t: new Date().toISOString(), acc, tp, pending: true, before, rounds: ((T && T.rounds) || 0) + 1, model: G.model || null };
       if (sameK) p.k = q.k;
       saveTune(p);
       out.undo = () => {
@@ -2886,6 +3177,65 @@
       if (we == null) return '–';
       return `your pops spread over about ${we} px: targets at least that wide are easy for you (the small bubbles are ${SIZES[0][1]} px)`;
     }
+    // ---- the model trial, shared by both games: which model this round plays, the adaptive episodes and their rewards
+    function startModelRound(st, h, t) {
+      const pick = pickModel(h);
+      st.model = pick.id;
+      st.modelLocked = pick.locked;
+      st.choices = {};
+      st.episodes = [];
+      st.epi = null;
+      if (pick.id === 'adaptive') {
+        const q = profileHand(h);
+        st.chooser = new Chooser(MODEL_IDS, q && q.bandit);
+      } else {
+        st.chooser = null;
+        setModel(pick.id, t);
+      }
+      $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '');
+    }
+    function episodeStart(st, task, f, targetPx, t) {
+      const x = ctxFeatures(task, f, st.hand, targetPx),
+        arm = st.chooser.choose(x);
+      setModel(arm, t);
+      st.epi = { arm, x, t0: t };
+      st.choices[arm] = (st.choices[arm] || 0) + 1;
+    }
+    function episodeEnd(st, reward, t) {
+      const e = st.epi;
+      if (!e || !st.chooser) return;
+      const r = clamp(reward * timeFactor(t - e.t0), 0, 1);
+      st.chooser.update(e.arm, e.x, r);
+      st.episodes.push({ arm: e.arm, tilt: e.x[3], task: e.x[1] ? 'carry' : 'press', r: +r.toFixed(2) });
+      st.epi = null;
+    }
+    // for the end card: "model B for presses while tilted, model C for carrying"
+    function modelSummary(st, h) {
+      if (!st.model) return '–';
+      if (st.model !== 'adaptive') return `${modelTag(h, st.model)}${st.modelLocked ? ' (locked)' : ' (on trial; the games compare the models in turn)'}`;
+      const eps = st.episodes || [];
+      if (!eps.length) return 'adaptive (no complete episodes this round)';
+      const parts = [];
+      for (const arm of MODEL_IDS) {
+        const mine = eps.filter((e) => e.arm === arm);
+        if (!mine.length) continue;
+        const tilted = mine.filter((e) => e.tilt > 0.35).length / mine.length,
+          task = mine.filter((e) => e.task === 'carry').length > mine.length / 2 ? 'carrying' : 'presses',
+          when = tilted > 0.6 ? ' while tilted' : tilted < 0.2 && mine.length > 3 ? ' with the hand flat' : '';
+        parts.push(`${modelTag(h, arm)} for ${task}${when} (×${mine.length})`);
+      }
+      return 'adaptive: ' + parts.join(', ');
+    }
+    function saveChooser(st, h) {
+      if (!st.chooser) return;
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!p || !p.hands || !p.hands[h]) return;
+        p.hands[h].bandit = st.chooser.save();
+        localStorage.setItem(KEY, JSON.stringify(p));
+      } catch (e) {}
+    }
+
     // ---- the carry game: pick up a disc (move onto it, pinch and hold), carry it into the shaded square and open the hand
     // to drop it. The square visits the four corners and then the middle, then again smaller. It measures holding a pinch
     // while moving (slips), placement error, delivery time and how straight the path was. Settings aren't changed by it.
@@ -2982,9 +3332,12 @@
         C.profiled = applyProfile(label);
         $('gBest').textContent = '–';
         $('prompt').hidden = true;
+        startModelRound(C, label, t);
       }
       const o = C.obj,
         z = C.zone;
+      // adaptive rounds: a new episode starts with the hand open and slow, before the disc is picked up
+      if (C.chooser && !C.epi && !C.held && !f.pinch && (f.fast || 0) < 0.3) episodeStart(C, 'carry', f, z.s, t);
       // not held: the disc is the only target. Held: the square is, so it holds the cursor (and the disc) like a button
       const items = C.held ? [{ key: z, cx: z.x, cy: z.y, dist: z.dist }] : [{ key: o, cx: o.x, cy: o.y, dist: (x, y) => Math.hypot(x - o.x, y - o.y) - o.r }];
       if (C.held) f.drag = true; // carrying: inside the square the disc keeps closing on the hand, so it can be placed
@@ -3036,6 +3389,7 @@
                   bonus = Math.max(0, 5 - Math.round(err / 12));
                 C.done.push({ spot: z.spot, size: z.s, errPx: Math.round(err), ms: Math.round(ms), holdMs: Math.round(t - C.pickT), eff: C.path > 1 ? Math.min(1, straight / C.path) : null, slips: C.slipsThis });
                 C.score += 10 + bonus;
+                episodeEnd(C, clamp(1 - err / 80, 0, 1) * (C.slipsThis ? 0.5 : 1), t);
                 const f0 = 523.25 * Math.pow(2, Math.min(C.done.length - 1, 12) / 12);
                 note(f0, 0, 0.08, 0.2);
                 note(f0 * 1.5, 0.05, 0.05, 0.25);
@@ -3159,7 +3513,7 @@
       q.k = k;
       if (kW) q.kW = kW;
       if (grew.length) q.reach = rch;
-      q.carryTune = { t: new Date().toISOString(), score: C.score, pending: true, before, rounds: ((T && T.rounds) || 0) + 1 };
+      q.carryTune = { t: new Date().toISOString(), score: C.score, pending: true, before, rounds: ((T && T.rounds) || 0) + 1, model: C.model || null };
       if (sameK) p.k = q.k;
       saveTune(p);
       out.undo = () => {
@@ -3191,13 +3545,15 @@
         effM = eff.length ? eff.reduce((a, x) => a + x.eff, 0) / eff.length : null,
         hold = d.length ? median(d.map((x) => x.holdMs)) : null;
       const hist = history();
-      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d });
+      saveChooser(C, h);
+      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
       const rows = [
         ['Score', `<b style="color:var(--gold);font-size:1.3rem">${C.score}</b>`],
         ['Hand', `${h.toLowerCase()}${C.profiled ? ', with your trained settings' : ', default settings'}`],
+        ['Hand model', modelSummary(C, h)],
         ['Delivered', `${d.length} of ${C.i + (C.zone ? 1 : 0)} squares${d.length >= CARRY_SPOTS.length ? ' (all four corners and the middle' + (d.length >= 2 * CARRY_SPOTS.length ? ', twice' : '') + ')' : ''}`],
         ['Slips', `${C.slips} (the disc dropped outside a square)${C.saves ? ` · ${C.saves} flickers of the pinch held through` : ''}`],
         ['Placement', err == null ? '–' : `${Math.round(err)} px from the centre, typical`],
@@ -3238,13 +3594,15 @@
         } catch (e) {}
       }
       const hist = history();
-      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput() });
+      saveChooser(G, h);
+      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
       const rows = [
         ['Score', `<b style="color:var(--gold);font-size:1.3rem">${G.score}</b>${isBest ? ' 🏆 new best!' : prev ? ` (best ${prev})` : ''}`],
         ['Hand', `${h.toLowerCase()}${G.profiled ? ', with your trained settings' : ', default settings (train this hand for a better fit)'}`],
+        ['Hand model', modelSummary(G, h)],
         ['Popped', `${G.pops} · ${G.fell} got away`],
         ['Pinch accuracy', acc == null ? '–' : `${Math.round(acc * 100)}% (${G.missPress} pinches beside a bubble)`],
         ['Time to pop', react == null ? '–' : `${(react / 1000).toFixed(1)} s typical, from the top of the screen`],
@@ -3345,7 +3703,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.32',
+        app: 'v0.33',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -3676,7 +4034,7 @@
     }
     function frame(L, t, label, W) {
       sideHint = false;
-      let f = feat(L, t, W);
+      let f = feat(L, t, W, label);
       const c = $('cur');
       if (step === 'game' || step === 'carry' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
       recFrame(t, L, f, label, REC.nHands || 1, false);
@@ -3990,6 +4348,15 @@
     window.trainGameState = () => G;
     window.trainGameEnd = endGame;
     window.trainCarry = startCarry;
+    window.trainModels = HAND_MODELS;
+    window.trainSetModel = setModel;
+    window.trainModel = () => MODEL.id;
+    window.trainPickModel = pickModel;
+    window.trainChooser = Chooser;
+    window.trainCtx = ctxFeatures;
+    window.trainLock = lockModel;
+    window.trainFeat = feat;
+    window.trainGameRows = gameRows;
     window.trainCarryFrame = carryFrame;
     window.trainCarryState = () => C;
     window.trainCarryEnd = endCarry;

@@ -1,4 +1,4 @@
-# Hand control training (v0.32)
+# Hand control training (v0.33)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -24,6 +24,8 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 - *A press you can feel*: the target bounces and a ring bursts from where you pressed.
 
 **Tuning.** The game's tuning is judged by throughput (speed and precision in one number) over at least 20 pops, so chance variation can't undo a good change or keep a bad one; a change needs 12 pinches to be made.
+
+**Hand models on trial.** There are four ways of turning the tracked hand into the one point the cursor follows: the palm centre (steady, but a palm's length behind the fingertip), the index fingertip itself (exact, but the jumpiest point), a virtual fingertip rebuilt from the palm's direction, and a fitted palm (a five-point palm shape learned for you, fitted to each frame, with the fingertip's usual place in it). The games try them in turn, one per round, shown only as a letter so you can't tell which is which, and the private comparison shows how each did (throughput, placement, slips). Once every model has had two rounds an **adaptive** mode joins the draw: before each target it looks at the task, how tilted and how near the hand is, which hand, how fast it is moving and the target's size, picks the model it expects to do best, and learns from how it went. On the comparison page you can lock one model, pick adaptive, or keep trialling. The pinch is measured the same way whichever model is in use.
 
 **🎞 Replay** draws what happened in the last few minutes (targets, prompts, the cursor and its trail, presses, and the tracked hand points with the waist line) so a problem can be watched again. You can download the replay log and send it in, or open one. It holds no camera picture, stays in the tab until you reload, and is never sent anywhere by itself.
 
