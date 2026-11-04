@@ -58,6 +58,7 @@ for n, r in (rat.items() if isinstance(rat, dict) else []):
 rec = {
     'issue': int(ISSUE_NUM),
     'k': {n: round(float(k[n]), 4) for n in LIM},
+    'kW': {n: round(float(p['kW'][n]), 4) for n in ('pOn', 'pOff')} if isinstance(p.get('kW'), dict) and all(isinstance(p['kW'].get(n), (int, float)) and LIM[n][0] <= p['kW'][n] <= LIM[n][1] for n in ('pOn', 'pOff')) else None,
     'reach': {a: round(float(p['reach'][a]), 3) for a in ('xs', 'ys')} if isinstance(p.get('reach'), dict) and all(isinstance(p['reach'].get(a), (int, float)) for a in ('xs', 'ys')) else None,
     'answers': {n: ans.get(n) for n in CHOICES},
     'ratings': {n: {'score': r['score'], 'auto': bool(r.get('auto')), 'effort': r.get('effort')} for n, r in rat.items()} if isinstance(rat, dict) else None,
@@ -84,7 +85,14 @@ def med(vals, lo, hi):
 
 
 def summarise(rs):
-    return {n: med([r['k'][n] for r in rs], lo, hi) for n, (lo, hi) in LIM.items()} | {'n': len(rs)}
+    # smoothing and button pull carry over as they are. Pinch thresholds are only shared in the atlas's 3D world space
+    # (kW, from training v0.20 on): the older image-space numbers don't mean the same thing to the atlas's 3D pinch.
+    out = {n: med([r['k'][n] for r in rs], lo, hi) for n, (lo, hi) in LIM.items() if n not in ('pOn', 'pOff')}
+    w = [r for r in rs if isinstance(r.get('kW'), dict)]
+    if len(w) >= 5:
+        out['pOn'] = med([r['kW'].get('pOn') for r in w], *LIM['pOn'])
+        out['pOff'] = med([r['kW'].get('pOff') for r in w], *LIM['pOff'])
+    return out | {'n': len(rs), 'n3d': len(w)}
 
 
 groups = {'all': rows}
