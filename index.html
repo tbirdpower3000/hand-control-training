@@ -708,7 +708,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.25, 3 Nov 2026">v0.25</div>
+<div id="ver" title="Hand control training, version 0.26, 3 Nov 2026">v0.26</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -728,7 +728,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.25 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.26 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -740,7 +740,7 @@
     <li><b>Targets:</b> press eight buttons as they appear.</li>
     <li><b>Fast:</b> dart across the screen to a ring and stop on it, a few times.</li>
   </ol>
-  <p class="muted">Or just play: <b>🎈 Pop the bubbles</b> is a 45-second game where you pinch falling bubbles. It uses your trained settings, if you have them, and gets faster as you score.</p>
+  <p class="muted">Or just play: <b>🎈 Pop the bubbles</b> is a 45-second game where you pinch falling bubbles of three sizes (small ones score more). It uses your trained settings, if you have them, and gets faster as you score.</p>
   <fieldset>
     <legend>Which hands should it learn?</legend>
     <div class="chips">
@@ -1881,6 +1881,8 @@
         ['Pop game: best score', (a, g) => (g.length ? Math.max(...g.map((x) => x.score)) : null), 'i'],
         ['Pop game: pinch accuracy', (a, g) => avg(last(g, 5), (x) => x.accuracy), '%'],
         ['Pop game: time to pop', (a, g) => avg(last(g, 5), (x) => x.reactMs), 's'],
+        ['Pop game: small bubbles popped', (a, g) => avg(last(g, 5), (x) => (x.bySize && x.bySize.small && x.bySize.small.n ? x.bySize.small.hit / x.bySize.small.n : null)), '%'],
+        ['Pop game: precision (effective width, px)', (a, g) => avg(last(g, 5), (x) => x.effW), 'i'],
       ];
       const tbl = rows
         .map(([label, f, kind]) => {
@@ -2185,16 +2187,27 @@
       $('gTime').textContent = Math.ceil(G.left);
       $('gCombo').textContent = G.combo > 1 ? '×' + G.combo : '0';
     }
+    // three sizes, mixed at random: small ones are worth more. Hits and misses are counted per size, and where each pop
+    // landed against the bubble's centre gives your precision (the "effective width" used in pointing studies: 4.133 ×
+    // the spread of your hits, the size of target you hit 96% of the time)
+    const SIZES = [
+      ['small', 36, 3],
+      ['medium', 56, 2],
+      ['large', 84, 1],
+    ];
+    const bx = (b) => (b.sx != null ? b.sx : b.x); // where the bubble is drawn (it sways a little as it falls)
     function spawnBubble() {
       const H = innerHeight,
-        d = 48 + Math.random() * 22,
+        sz = SIZES[(Math.random() * SIZES.length) | 0],
+        d = sz[1],
         x = d / 2 + 24 + Math.random() * (innerWidth - d - 48),
         el = tgt('bubble', x, -d / 2);
       el.style.width = el.style.height = d + 'px';
       el.style.setProperty('--bc', BCOL[(Math.random() * BCOL.length) | 0]);
       // fall speed grows with the level: about 8 s top to bottom at the start, about 2.5 s at the top level
       const v = H * (0.12 + 0.025 * G.level) * (0.85 + Math.random() * 0.3);
-      G.bubbles.push({ el, x, y: -d / 2, r: d / 2, v, born: performance.now(), drift: (Math.random() - 0.5) * 30, ph: Math.random() * 6 });
+      G.bubbles.push({ el, x, y: -d / 2, r: d / 2, v, born: performance.now(), drift: (Math.random() - 0.5) * 30, ph: Math.random() * 6, size: sz[0], pts: sz[2] });
+      szStat(sz[0]).n++;
     }
     function gamePaused(now) {
       return restShown || !G.lastHand || now - G.lastHand > 400;
@@ -2222,12 +2235,14 @@
         const b = G.bubbles[i];
         b.y += b.v * dt;
         b.ph += dt * 2;
-        b.el.style.left = b.x + Math.sin(b.ph) * b.drift * 0.3 + 'px';
+        b.sx = b.x + Math.sin(b.ph) * b.drift * 0.3;
+        b.el.style.left = b.sx + 'px';
         b.el.style.top = b.y + 'px';
         if (b.y - b.r > innerHeight) {
           G.bubbles.splice(i, 1);
           b.el.remove();
           G.fell++;
+          szStat(b.size).fell++;
           G.combo = 0;
           G.streakFell++;
           SND.miss();
@@ -2259,7 +2274,7 @@
       let best = null,
         bd = 1e9;
       G.bubbles.forEach((b) => {
-        const d = Math.hypot(f.x - b.x, f.y - b.y) - b.r;
+        const d = Math.hypot(f.x - bx(b), f.y - b.y) - b.r;
         b.el.classList.toggle('hot', d < 12);
         if (d < bd) {
           bd = d;
@@ -2289,8 +2304,9 @@
         if (back) G.drift.push(Math.hypot(f.x - back[1], f.y - back[2]));
       }
       if (fresh && !gamePaused(performance.now())) {
-        if (best && bd < 14) popBubble(best, t);
+        if (best && bd < 14) popBubble(best, t, f);
         else if (best && bd < 120) {
+          szStat(best.size).miss++;
           G.missD.push(bd);
           G.missPress++;
           G.combo = 0;
@@ -2300,8 +2316,14 @@
       if (f.pinch) G.openSince = 0;
       G.wasPinch = f.pinch;
     }
-    function popBubble(b, t) {
+    function szStat(k) {
+      G.sz = G.sz || {};
+      return (G.sz[k] = G.sz[k] || { n: 0, hit: 0, fell: 0, miss: 0 });
+    }
+    function popBubble(b, t, f) {
       G.bubbles.splice(G.bubbles.indexOf(b), 1);
+      szStat(b.size).hit++;
+      if (f) (G.offs = G.offs || []).push([f.x - bx(b), f.y - b.y]); // where the pop landed against the centre
       b.el.classList.add('popped');
       setTimeout(() => b.el.remove(), 200);
       G.pops++;
@@ -2309,7 +2331,7 @@
       G.bestCombo = Math.max(G.bestCombo, G.combo);
       G.streakFell = 0;
       G.react.push(t - b.born);
-      const pts = 1 + Math.min(4, Math.floor(G.combo / 3)); // every third pop in a row is worth one more
+      const pts = (b.pts || 1) + Math.min(4, Math.floor(G.combo / 3)); // small bubbles are worth more; every third pop in a row one more
       G.score += pts;
       if (G.pops % 4 === 0) G.level = Math.min(12, G.level + 1);
       // the pop sings higher as the combo grows
@@ -2318,7 +2340,7 @@
       note(f0 * 1.5, 0.05, 0.05, 0.25);
       const fx_ = document.createElement('div');
       fx_.className = 'popfx';
-      fx_.style.left = b.x + 'px';
+      fx_.style.left = bx(b) + 'px';
       fx_.style.top = b.y + 'px';
       fx_.textContent = '+' + pts;
       document.body.appendChild(fx_);
@@ -2424,6 +2446,30 @@
         localStorage.setItem(KEY, JSON.stringify(p));
       } catch (e) {}
     }
+    // the spread of your pops around the bubbles' centres: effective width = 4.133 × the standard deviation (per axis)
+    function effWidth() {
+      const o = G.offs || [];
+      if (o.length < 6) return null;
+      const mx = o.reduce((a, p) => a + p[0], 0) / o.length,
+        my = o.reduce((a, p) => a + p[1], 0) / o.length,
+        sd = Math.sqrt(o.reduce((a, p) => a + (p[0] - mx) ** 2 + (p[1] - my) ** 2, 0) / (2 * (o.length - 1)));
+      return Math.round(4.133 * sd);
+    }
+    function bySizeText() {
+      const z = G.sz || {};
+      const parts = SIZES.map(([k]) => {
+        const q = z[k];
+        if (!q || !q.n) return null;
+        const tries = q.hit + q.miss + q.fell;
+        return `${k} ${q.hit}/${q.n}${tries ? ` (${Math.round((100 * q.hit) / Math.max(1, tries))}%)` : ''}`;
+      }).filter(Boolean);
+      return parts.length ? parts.join(' · ') + ' popped' : '–';
+    }
+    function precisionText() {
+      const we = effWidth();
+      if (we == null) return '–';
+      return `your pops spread over about ${we} px: targets at least that wide are easy for you (the small bubbles are ${SIZES[0][1]} px)`;
+    }
     function endGame() {
       step = 'gameover';
       G.bubbles.forEach((b) => b.el.remove());
@@ -2447,7 +2493,7 @@
         } catch (e) {}
       }
       const hist = history();
-      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled });
+      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth() });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -2457,6 +2503,8 @@
         ['Popped', `${G.pops} · ${G.fell} got away`],
         ['Pinch accuracy', acc == null ? '–' : `${Math.round(acc * 100)}% (${G.missPress} pinches beside a bubble)`],
         ['Time to pop', react == null ? '–' : `${(react / 1000).toFixed(1)} s typical, from the top of the screen`],
+        ['By size', bySizeText()],
+        ['Precision', precisionText()],
         ['Best combo', G.bestCombo > 1 ? '×' + G.bestCombo : '–'],
         ['Top speed reached', `level ${G.level + 1} of 13`],
         ['Cursor slide when pinching', G.drift.length ? `${Math.round(median(G.drift))} px typical` : '–'],
@@ -2553,7 +2601,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.25',
+        app: 'v0.26',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
