@@ -162,7 +162,7 @@ def game_rows(gs):
         return None
     out = []
     for g in gs:
-        if not isinstance(g, dict) or g.get('kind') not in ('game', 'carry') or g.get('hand') not in ('Right', 'Left'):
+        if not isinstance(g, dict) or g.get('kind') not in ('game', 'carry', 'fruit') or g.get('hand') not in ('Right', 'Left'):
             return None
         o = {'kind': g['kind'], 'hand': g['hand'], 't': str(g.get('t', ''))[:10], 'score': num(g.get('score')), 'trained': bool(g.get('trained'))}
         # which hand model the round used (a short id), and for adaptive rounds how often each was chosen
@@ -200,6 +200,19 @@ def game_rows(gs):
                     o['bySize'][z] = {n: num(d.get(n)) for n in ('n', 'hit', 'fell', 'miss')}
             else:
                 o['bySize'] = None
+        elif g['kind'] == 'fruit':
+            # the fruit game: counts, swipe speed (px/s), the share of swipes that cut, the cursor's lag in swipes (ms),
+            # the overshoot after a swipe (px), frames with the hand lost mid-swipe, gentle mode and the speed a swipe needed
+            for n in ('sliced', 'thrown', 'barrelsHit', 'barrelsThrown', 'swipes', 'cutSwipes', 'bestCombo', 'dropsFast', 'fastFrames'):
+                o[n] = num(g.get(n), 0, 1e5)
+            o['peakV'] = num(g.get('peakV'), 0, 20000)
+            o['acc'] = num(g.get('acc'), 0, 1)
+            o['lagMs'] = num(g.get('lagMs'), 0, 1000)
+            o['overPx'] = num(g.get('overPx'), 0, 2000)
+            o['thr'] = num(g.get('thr'), 0, 5000)
+            sw = g.get('swipe')
+            o['swipe'] = {k: num(sw.get(k), 50, 6000) for k in ('slow', 'mid', 'fast')} if isinstance(sw, dict) else None
+            o['gentle'] = bool(g.get('gentle'))
         else:
             for n in ('deliveries', 'slips', 'saves', 'errPx', 'timeMs', 'holdMs'):
                 o[n] = num(g.get(n))
@@ -241,7 +254,7 @@ if any(os.path.exists(f) and any(json.loads(l).get('issue') == rec['issue'] for 
     open('collect_msg.txt', 'w').write('Already stored, thanks.')
     sys.exit(0)
 # the same game round shared again (a later share can repeat earlier rounds): keep only rounds not already stored
-GAME_KEY = ('kind', 'hand', 't', 'score', 'pops', 'deliveries', 'missPress', 'slips')
+GAME_KEY = ('kind', 'hand', 't', 'score', 'pops', 'deliveries', 'missPress', 'slips', 'sliced', 'thrown', 'swipes')
 
 
 def game_key(g):

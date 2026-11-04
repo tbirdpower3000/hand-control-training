@@ -394,20 +394,23 @@
   }
   @media (max-width: 600px) {
     #gameEnd dl,
-    #carryEnd dl {
+    #carryEnd dl,
+    #fruitEnd dl {
       grid-template-columns: 1fr;
     }
     #gameEnd .row,
     #carryEnd .row,
+    #fruitEnd .row,
     #share .row {
       position: sticky;
-      bottom: 0;
-      background: var(--card, #0f1626);
-      padding-block: 8px;
+      bottom: -22px;
+      background: #151b29; /* opaque, so the card's text scrolls behind the buttons */
+      padding-block: 8px 22px;
     }
   }
   #gameEnd .row button,
   #carryEnd .row button,
+  #fruitEnd .row button,
   #share .row button,
   #shareGamesLbl,
   #shareOldLbl {
@@ -417,6 +420,7 @@
   }
   #gameEnd .row button.hot,
   #carryEnd .row button.hot,
+  #fruitEnd .row button.hot,
   #share .row button.hot,
   #shareGamesLbl.hot,
   #shareOldLbl.hot {
@@ -477,6 +481,20 @@
     color: var(--muted);
   }
   /* the hand cursor, as in the atlas: the gold ring fills as the fingers close */
+  #fruitEnd .row {
+    position: sticky;
+    bottom: -22px;
+    background: #151b29; /* the card's colour, opaque, so the text scrolls behind it */
+    padding-block: 8px 22px;
+  }
+  #fruitCv {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 4;
+  }
   #cur {
     position: fixed;
     left: 0;
@@ -992,7 +1010,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.40, 4 Nov 2026">v0.40</div>
+<div id="ver" title="Hand control training, version 0.41, 4 Nov 2026">v0.41</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -1013,7 +1031,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.40 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.41 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1022,6 +1040,7 @@
     <button type="button" class="tile primary" id="go"><span class="ti" aria-hidden="true">✋</span><span class="tt"><b>Train</b><small>About a minute, full screen</small></span></button>
     <button type="button" class="tile" id="play"><span class="ti" aria-hidden="true">🎈</span><span class="tt"><b>Pop the bubbles</b><small>45 s · pinch falling bubbles</small></span></button>
     <button type="button" class="tile" id="carry"><span class="ti" aria-hidden="true">📦</span><span class="tt"><b>Carry the disc</b><small>60 s · pick up, carry, drop</small></span></button>
+    <button type="button" class="tile" id="fruit"><span class="ti" aria-hidden="true">🍉</span><span class="tt"><b>Slice the fruit</b><small>60 s · quick swipes, no pinch: fast moves</small></span></button>
     <button type="button" class="tile" id="aimBtn"><span class="ti" aria-hidden="true">🎯</span><span class="tt"><b>Choose your aim</b><small>See what works best for you</small></span></button>
     <button type="button" class="tile" id="cmpBtn"><span class="ti" aria-hidden="true">📊</span><span class="tt"><b>Compare</b><small>Right and left, over time</small></span></button>
     <button type="button" class="tile" id="shareBtn0"><span class="ti" aria-hidden="true">🔗</span><span class="tt"><b>Share results</b><small>Optional, with the project</small></span></button>
@@ -1096,6 +1115,7 @@
   <div class="tiles" id="doneTiles">
     <button type="button" class="tile primary" id="play2"><span class="ti" aria-hidden="true">🎈</span><span class="tt"><b>Pop the bubbles</b><small>45 s · pinch falling bubbles</small></span></button>
     <button type="button" class="tile" id="carry2"><span class="ti" aria-hidden="true">📦</span><span class="tt"><b>Carry the disc</b><small>60 s · pick up, carry, drop</small></span></button>
+    <button type="button" class="tile" id="fruit2"><span class="ti" aria-hidden="true">🍉</span><span class="tt"><b>Slice the fruit</b><small>60 s · quick swipes, no pinch: fast moves</small></span></button>
     <button type="button" class="tile" id="aim2"><span class="ti" aria-hidden="true">🎯</span><span class="tt"><b>Choose your aim</b><small>See what works best for you</small></span></button>
     <button type="button" class="tile" id="cmp2"><span class="ti" aria-hidden="true">📊</span><span class="tt"><b>Compare</b><small>Right and left, over time</small></span></button>
     <button type="button" class="tile" id="again"><span class="ti" aria-hidden="true">✋</span><span class="tt"><b>Train again</b><small>Replaces this profile</small></span></button>
@@ -1142,6 +1162,22 @@
   </div>
 </div>
 
+<section class="card" id="fruitEnd" hidden>
+  <h2>🍉 Fruit sliced</h2>
+  <dl id="fruitSum"></dl>
+  <p id="fruitHint" hidden style="color:var(--gold);font-weight:600">✋ Hands work here too: move onto a button and pinch. Pinch 🍉 Play again for a new round.</p>
+  <p class="muted">Kept in this browser only. The fruit game measures fast movement: how fast your swipes are, how often a swipe cuts something, how far the cursor trails your hand while it moves fast and how far it runs past where your hand stopped, and how often the camera loses your hand mid-swipe. It doesn't change your settings. It pauses while your hand rests below the waist line.</p>
+  <div class="row">
+    <button type="button" class="primary" id="fruitAgain">🍉 Play again</button>
+    <button type="button" id="fruitAim">🎯 Choose your aim</button>
+    <button type="button" id="fruitGentle">🐢 Gentle: auto</button>
+    <button type="button" id="fruitRemeasure">↻ Re-measure swipes</button>
+    <button type="button" id="fruitBack">← Back</button>
+    <button type="button" id="fruitShare">Share results</button>
+    <button type="button" id="replayBtn5">🎞 Replay</button>
+    <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">Go to the atlas</a>
+  </div>
+</section>
 <section class="card" id="carryEnd" hidden>
   <h2>📦 Disc delivered</h2>
   <dl id="carrySum"></dl>
@@ -1211,7 +1247,7 @@
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
     const KEY = 'atlasHandAssist',
       FORMAT = 'planetary-atlas-hand-profile';
-    const APP_VER = '0.40'; // logged with each game round, so a change of rules can be told apart in the history
+    const APP_VER = '0.41'; // logged with each game round, so a change of rules can be told apart in the history
     const BASE = { snap: 28, minCut: 0.8, beta: 3, pOn: 0.3, pOff: 0.48 },
       BASE_REACH = { x0: 0.22, xs: 0.56, y0: 0.18, ys: 0.52 },
       BASE_REACH_NOW = Object.assign({}, BASE_REACH); // the default box, adjusted by your answers
@@ -1731,7 +1767,7 @@
     function pickModel(h) {
       const q = profileHand(h);
       if (q && q.model && HAND_MODELS[q.model]) return { id: q.model, locked: true }; // a lock on the retired adaptive mode = keep comparing
-      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h),
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry' || x.kind === 'fruit') && x.hand === h),
         n = Object.fromEntries(MODEL_IDS.map((id) => [id, rows.filter((x) => x.model === id).length])),
         ids = [...MODEL_IDS];
       const least = Math.min(...ids.map((id) => n[id])),
@@ -1888,7 +1924,7 @@
           LR.hints++;
           prompt(LIGHT_FIX[w][0], LIGHT_FIX[w][1]);
           clearTimeout(LR.pt);
-          LR.pt = setTimeout(() => (step === 'game' || step === 'carry') && ($('prompt').hidden = true), 6000);
+          LR.pt = setTimeout(() => (step === 'game' || step === 'carry' || step === 'fruit') && ($('prompt').hidden = true), 6000);
         }
       } else LR.badSince = 0;
     }
@@ -2064,7 +2100,7 @@
       const say = (a, b) => {
         prompt(a, b);
         clearTimeout(D.pt);
-        D.pt = setTimeout(() => (step === 'game' || step === 'carry') && ($('prompt').hidden = true), 5000);
+        D.pt = setTimeout(() => (step === 'game' || step === 'carry' || step === 'fruit') && ($('prompt').hidden = true), 5000);
       };
       D.closeSince = close ? D.closeSince || now : 0;
       D.farSince = far ? D.farSince || now : 0;
@@ -2264,7 +2300,7 @@
       if (q && q.mapping && MAPPINGS[q.mapping]) return { id: q.mapping, locked: true, uncal: false };
       const ids = mappingsFor(q);
       if (ids.length === 1) return { id: 'flat', locked: false, uncal: true };
-      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h),
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry' || x.kind === 'fruit') && x.hand === h),
         n = Object.fromEntries(ids.map((id) => [id, rows.filter((x) => x.mapping === id).length])),
         least = Math.min(...Object.values(n)),
         cands = ids.filter((id) => n[id] === least);
@@ -3399,8 +3435,9 @@
     // times on the first card or the summary. Nothing here is shown in the normal flow or shared.
     function showCompare() {
       const h = history(),
-        T = h.filter((x) => x.kind !== 'game' && x.kind !== 'carry'),
+        T = h.filter((x) => x.kind !== 'game' && x.kind !== 'carry' && x.kind !== 'fruit'),
         cr = { Right: h.filter((x) => x.kind === 'carry' && x.hand === 'Right'), Left: h.filter((x) => x.kind === 'carry' && x.hand === 'Left') },
+        fz = { Right: h.filter((x) => x.kind === 'fruit' && x.hand === 'Right'), Left: h.filter((x) => x.kind === 'fruit' && x.hand === 'Left') },
         by = { Right: T.filter((x) => x.hand === 'Right'), Left: T.filter((x) => x.hand === 'Left') },
         gm = { Right: h.filter((x) => x.kind === 'game' && x.hand === 'Right'), Left: h.filter((x) => x.kind === 'game' && x.hand === 'Left') };
       const avg = (a, f) => {
@@ -3430,6 +3467,13 @@
         ['Pop game: small bubbles popped', (a, g) => avg(last(g, 5), (x) => (x.bySize && x.bySize.small && x.bySize.small.n ? x.bySize.small.hit / x.bySize.small.n : null)), '%'],
         ['Pop game: precision (effective width, px)', (a, g) => avg(last(g, 5), (x) => x.effW), 'i'],
         ['Pop game: throughput (bits/s)', (a, g) => avg(last(g, 5), (x) => x.tp), 'x'],
+        ['Fruit game: rounds', (a, g, c, z) => z.length, 'n'],
+        ['Fruit game: fruit sliced', (a, g, c, z) => avg(last(z, 5), (x) => (x.thrown ? x.sliced / x.thrown : null)), '%'],
+        ['Fruit game: swipes that cut', (a, g, c, z) => avg(last(z, 5), (x) => x.acc), '%'],
+        ['Fruit game: swipe top speed (px/s)', (a, g, c, z) => avg(last(z, 5), (x) => x.peakV), 'i'],
+        ['Fruit game: cursor lag in swipes (ms)', (a, g, c, z) => avg(last(z, 5), (x) => x.lagMs), 'i'],
+        ['Fruit game: overshoot after a swipe (px)', (a, g, c, z) => avg(last(z, 5), (x) => x.overPx), 'i'],
+        ['Fruit game: hand lost mid-swipe', (a, g, c, z) => avg(last(z, 5), (x) => (x.fastFrames + x.dropsFast ? x.dropsFast / (x.fastFrames + x.dropsFast) : null)), '%'],
         ['Carry game: rounds', (a, g, c) => c.length, 'n'],
         ['Carry game: deliveries per round', (a, g, c) => avg(last(c, 5), (x) => x.deliveries), '1'],
         ['Carry game: slips per round', (a, g, c) => avg(last(c, 5), (x) => x.slips), '1'],
@@ -3461,8 +3505,8 @@
       }
       const tbl = rows
         .map(([label, f, kind]) => {
-          const r = f(by.Right, gm.Right, cr.Right),
-            l = f(by.Left, gm.Left, cr.Left),
+          const r = f(by.Right, gm.Right, cr.Right, fz.Right),
+            l = f(by.Left, gm.Left, cr.Left, fz.Left),
             fr = kind === 'n' ? String(r) : fmt(r, kind),
             fl = kind === 'n' ? String(l) : fmt(l, kind);
           return `<tr><th>${label}</th><td>${fr}</td><td>${fl}</td></tr>`;
@@ -3505,7 +3549,7 @@
           $('cmpCopy').textContent = 'Copy failed: select the text instead';
         }
       };
-      ['intro', 'done', 'share', 'gameEnd', 'carryEnd', 'aim'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       $('compare').hidden = false;
     }
     // ---- what each feature did, judged so that chance can't crown a winner (v0.40). Each round's result is taken on a
@@ -3550,7 +3594,7 @@
         se = inv.map((r, j) => Math.sqrt(Math.max(0, s2 * r[j])));
       return { beta, se, n, p, df: n - p };
     }
-    const trialMetric = (kind, x) => (kind === 'game' ? (x.speed != null && isFinite(x.speed) ? x.speed : null) : x.score > 0 ? Math.log((x.score * 60) / CARRY_LEN) : null);
+    const trialMetric = (kind, x) => (kind === 'game' ? (x.speed != null && isFinite(x.speed) ? x.speed : null) : kind === 'fruit' ? (x.thrown > 0 ? Math.log((x.sliced + 0.5) / (x.thrown + 0.5)) : null) : x.score > 0 ? Math.log((x.score * 60) / CARRY_LEN) : null);
     const trialSecondary = (kind, x) => (kind === 'game' && x.tp > 0 ? Math.log(x.tp) : null);
     // rows: history rows of one game kind (any hands); metricOf: row -> number on a log scale, or null to leave it out
     function trialFit(kind, rows, metricOf) {
@@ -3597,6 +3641,7 @@
         for (const m of models) C_.push({ role: 'own', f: (x) => (x.hand === h && (x.model || 'none') === m ? 1 : 0) });
         for (const id of FEATURE_IDS) C_.push({ role: 'own', f: (x) => (x.hand === h && (info.get(x).firstF[id] < 0 || info.get(x).i < info.get(x).firstF[id]) ? 1 : 0) });
         C_.push({ role: 'own', f: (x) => (x.hand === h && (info.get(x).firstM < 0 || info.get(x).i < info.get(x).firstM) ? 1 : 0) });
+        C_.push({ role: 'own', f: (x) => (x.hand === h && x.gentle ? 1 : 0) }); // the fruit game's gentle mode is a different task
       }
       for (const id of FEATURE_IDS) C_.push({ role: 'feat', id, f: (x) => (x.features.includes(id) ? 1 : 0) });
       for (const m of MAPPING_IDS.slice(1)) C_.push({ role: 'map', id: m, f: (x) => (x.mapping === m ? 1 : 0) });
@@ -3634,7 +3679,7 @@
     function featureEffects(h, rowsIn) {
       const rows = rowsIn || history(),
         out = {};
-      for (const kind of ['game', 'carry']) {
+      for (const kind of ['game', 'carry', 'fruit']) {
         const F = trialFit(kind, rows, trialMetric),
           F2 = kind === 'game' ? trialFit(kind, rows, trialSecondary) : null,
           mine = F.use.filter((x) => x.hand === h),
@@ -3651,7 +3696,7 @@
           if (!on) continue;
           maps[m] = { on, effect: j.effect, se: j.sePct, t: j.t, ev: j.ev != null ? +j.ev.toFixed(1) : null, verdict: j.verdict, n: F.n, second: F2 ? F2.judge('map', m).effect : null };
         }
-        out[kind] = { n: F.n, df: F.df, fitted: F.fitted, thr: F.thr, feats, maps, unit: '%', metric: kind === 'game' ? 'speed against the Fitts line' : 'score per minute' };
+        out[kind] = { n: F.n, df: F.df, fitted: F.fitted, thr: F.thr, feats, maps, unit: '%', metric: kind === 'game' ? 'speed against the Fitts line' : kind === 'fruit' ? 'fruit sliced' : 'score per minute' };
       }
       return out;
     }
@@ -3667,6 +3712,9 @@
           c = fx_.carry.feats[id];
         if (g.verdict === 'implement in the atlas') suggest.push(`${FEATURES[id].label}: +${g.effect}% in the pop game (evidence ${g.ev} past ${fx_.game.thr}, ${g.n} rounds, both hands)`);
         if (c.verdict === 'implement in the atlas') suggest.push(`${FEATURES[id].label}: +${c.effect}% in the carry game (evidence ${c.ev} past ${fx_.carry.thr}, ${c.n} rounds, both hands)`);
+        const z = fx_.fruit.feats[id];
+        if (z.verdict === 'implement in the atlas') suggest.push(`${FEATURES[id].label}: +${z.effect}% fruit sliced in the fruit game (evidence ${z.ev} past ${fx_.fruit.thr}, ${z.n} rounds, both hands)`);
+        if (z.verdict === 'remove') dead.push(`${FEATURES[id].label} (clearly worse: ${z.effect}% in the fruit game)`);
         if (g.verdict === 'remove' || c.verdict === 'remove') dead.push(`${FEATURES[id].label} (clearly worse: ${g.verdict === 'remove' ? g.effect + '% in the pop game' : c.effect + '% in the carry game'})`);
       }
       for (const m of MAPPING_IDS.slice(1)) {
@@ -3674,13 +3722,16 @@
           c = fx_.carry.maps[m];
         if (g && g.verdict === 'implement in the atlas') suggest.push(`camera model ${MAPPINGS[m].label}: +${g.effect}% over the flat box in the pop game (evidence ${g.ev}, ${g.on} rounds)`);
         if (c && c.verdict === 'implement in the atlas') suggest.push(`camera model ${MAPPINGS[m].label}: +${c.effect}% over the flat box in the carry game (evidence ${c.ev}, ${c.on} rounds)`);
-        if ((g && g.verdict === 'remove') || (c && c.verdict === 'remove')) dead.push(`camera model ${MAPPINGS[m].label} (clearly worse than the flat box)`);
+        const z = fx_.fruit.maps[m];
+        if (z && z.verdict === 'implement in the atlas') suggest.push(`camera model ${MAPPINGS[m].label}: +${z.effect}% over the flat box in the fruit game (evidence ${z.ev}, ${z.on} rounds)`);
+        if ((g && g.verdict === 'remove') || (c && c.verdict === 'remove') || (z && z.verdict === 'remove')) dead.push(`camera model ${MAPPINGS[m].label} (clearly worse than the flat box)`);
       }
       const cell = (f) => (f.effect == null ? '–' : `${f.effect > 0 ? '+' : ''}${f.effect}% ± ${f.se}${f.second != null ? ` <small>(throughput ${f.second > 0 ? '+' : ''}${f.second}%)</small>` : ''}`),
         tbl = FEATURE_IDS.map((id) => {
           const g = fx_.game.feats[id],
-            c = fx_.carry.feats[id];
-          return `<tr><th>${lt[id]}: ${FEATURES[id].label}</th><td>${g.on} / ${g.off}</td><td>${cell(g)}</td><td>${g.verdict}</td><td>${c.on} / ${c.off}</td><td>${cell(c)}</td><td>${c.verdict}</td><td>${use[id] || 0}</td></tr>`;
+            c = fx_.carry.feats[id],
+            z = fx_.fruit.feats[id];
+          return `<tr><th>${lt[id]}: ${FEATURES[id].label}</th><td>${g.on} / ${g.off}</td><td>${cell(g)}</td><td>${g.verdict}</td><td>${c.on} / ${c.off}</td><td>${cell(c)}</td><td>${c.verdict}</td><td>${z.on} / ${z.off}</td><td>${cell(z)}</td><td>${z.verdict}</td><td>${use[id] || 0}</td></tr>`;
         }).join('');
       const text = `${h} hand\nSuggested for the atlas:\n${suggest.length ? suggest.map((s_) => '- ' + s_).join('\n') : '- nothing yet'}\nClearly worse:\n${dead.length ? dead.map((s_) => '- ' + s_).join('\n') : '- nothing yet'}`;
       return {
@@ -3688,14 +3739,14 @@
         html: `<h3>Feature trials, ${h.toLowerCase()} hand</h3>
         <dl><dt>Suggested for the atlas</dt><dd>${suggest.length ? suggest.join('<br />') : `Nothing yet: a feature is suggested once the evidence for it passes ${fx_.game.thr} (a test that can be checked after every round without crowning a winner by chance; small effects need many rounds, and both hands count together).`}</dd>
         <dt>Clearly worse</dt><dd>${dead.length ? dead.join('<br />') : 'Nothing yet (a feature is only called worse when the evidence shows it).'}</dd></dl>
-        <table class="cmp"><thead><tr><th>feature</th><th>pop on / off</th><th>pop effect (speed, %)</th><th>verdict</th><th>carry on / off</th><th>carry effect (score, %)</th><th>verdict</th><th>used (episodes)</th></tr></thead><tbody>${tbl}</tbody></table>`,
+        <table class="cmp"><thead><tr><th>feature</th><th>pop on / off</th><th>pop effect (speed, %)</th><th>verdict</th><th>carry on / off</th><th>carry effect (score, %)</th><th>verdict</th><th>fruit on / off</th><th>fruit effect (sliced, %)</th><th>verdict</th><th>used (episodes)</th></tr></thead><tbody>${tbl}</tbody></table>`,
       };
     }
     // lighting and tracking: the rounds grouped by the room's light, and a straight-line fit of each tracking measure on
     // brightness and on how much the hand stands out (per 100 levels of each)
     const LIGHT_BUCKETS = ['Dark', 'Dim', 'Good', 'Bright', 'Backlit'];
     function lightSection(h) {
-      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && x.light && x.light.luma != null),
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry' || x.kind === 'fruit') && x.hand === h && x.light && x.light.luma != null),
         avg = (a) => {
           const v = a.filter((q) => q != null && isFinite(q));
           return v.length ? v.reduce((p_, q) => p_ + q, 0) / v.length : null;
@@ -3745,7 +3796,7 @@
       ['over 120 cm', 120, 1e9],
     ];
     function distSection(h) {
-      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && x.distCm != null && isFinite(x.distCm)),
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry' || x.kind === 'fruit') && x.hand === h && x.distCm != null && isFinite(x.distCm)),
         avg = (a) => {
           const v = a.filter((q) => q != null && isFinite(q));
           return v.length ? v.reduce((p_, q) => p_ + q, 0) / v.length : null;
@@ -3785,15 +3836,18 @@
     const capFirst = (t) => t.charAt(0).toUpperCase() + t.slice(1);
     const aimName = (kind, id) => (capFirst(kind === 'model' ? HAND_MODELS[id].label : MAPPINGS[id].label));
     function aimStats(h, kind, id) {
-      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && (kind === 'model' ? x.model === id : x.mapping === id)),
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry' || x.kind === 'fruit') && x.hand === h && (kind === 'model' ? x.model === id : x.mapping === id)),
         g = rows.filter((x) => x.kind === 'game'),
         c = rows.filter((x) => x.kind === 'carry'),
         sum = (a, k) => a.reduce((s_, x) => s_ + (+x[k] || 0), 0),
         pops = sum(g, 'pops'),
         miss = sum(g, 'missPress'),
         del = sum(c, 'deliveries'),
-        sl = sum(c, 'slips');
-      return { rounds: rows.length, popRounds: g.length, pop: pops + miss > 0 ? pops / (pops + miss) : null, carryRounds: c.length, carry: del + sl > 0 ? del / (del + sl) : null };
+        sl = sum(c, 'slips'),
+        fz = rows.filter((x) => x.kind === 'fruit'),
+        cutN = sum(fz, 'sliced'),
+        thrN = sum(fz, 'thrown');
+      return { rounds: rows.length, popRounds: g.length, pop: pops + miss > 0 ? pops / (pops + miss) : null, carryRounds: c.length, carry: del + sl > 0 ? del / (del + sl) : null, fruitRounds: fz.length, fruit: thrN > 0 ? cutN / thrN : null };
     }
     function aimBest(h, kind) {
       const ids = kind === 'model' ? MODEL_IDS : MAPPING_IDS;
@@ -3835,7 +3889,7 @@
         })();
         aimHand = p && p.hands && !p.hands.Right && p.hands.Left ? 'Left' : HAND || 'Right';
       }
-      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd'].forEach((id) => ($(id).hidden = true));
       $('aim').hidden = false;
       showAim();
     }
@@ -3851,8 +3905,8 @@
       const opt = (kind, id) => {
         const st = aimStats(h, kind, id),
           best = aimBest(h, kind) === id,
-          big = st.pop != null ? st.pop : st.carry,
-          parts = [st.pop != null ? `Pop ${pct(st.pop)}` : null, st.carry != null ? `Carry ${pct(st.carry)}` : null].filter(Boolean).join(' · '),
+          big = st.pop != null ? st.pop : st.carry != null ? st.carry : st.fruit,
+          parts = [st.pop != null ? `Pop ${pct(st.pop)}` : null, st.carry != null ? `Carry ${pct(st.carry)}` : null, st.fruit != null ? `Fruit ${pct(st.fruit)}` : null].filter(Boolean).join(' · '),
           locked = kind === 'model' ? lockedM === id : lockedP === id,
           off = !q ? 'train this hand first' : kind === 'mapping' && !camOk.includes(id) ? 'train again to unlock' : '';
         return `<button type="button" class="aimOpt${locked ? ' sel' : ''}" data-kind="${kind}" data-id="${id}" aria-pressed="${locked}"${off ? ' disabled' : ''}>
@@ -4129,7 +4183,7 @@
     }
     function gameRows(n, since) {
       const rows = history()
-        .filter((x) => (x.kind === 'game' || x.kind === 'carry') && (!since || String(x.t || '') > since))
+        .filter((x) => (x.kind === 'game' || x.kind === 'carry' || x.kind === 'fruit') && (!since || String(x.t || '') > since))
         .slice(-n);
       return rows.map((x) => {
         const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, mapping: x.mapping ? String(x.mapping).slice(0, 8) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null, features: Array.isArray(x.features) ? x.features.slice(0, 12).map((id) => String(id).slice(0, 12)) : [], use: x.use && typeof x.use === 'object' ? Object.fromEntries(Object.entries(x.use).slice(0, 16).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
@@ -4140,6 +4194,10 @@
         if (x.kind === 'game') {
           for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'effWHits', 'tp', 'speed']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
+        } else if (x.kind === 'fruit') {
+          for (const k of ['sliced', 'thrown', 'barrelsHit', 'barrelsThrown', 'swipes', 'cutSwipes', 'bestCombo', 'peakV', 'acc', 'lagMs', 'overPx', 'dropsFast', 'fastFrames', 'thr']) o[k] = r3n(x[k]);
+          o.gentle = !!x.gentle;
+          o.swipe = x.swipe ? { slow: r3n(x.swipe.slow), mid: r3n(x.swipe.mid), fast: r3n(x.swipe.fast) } : null;
         } else {
           for (const k of ['deliveries', 'slips', 'saves', 'errPx', 'timeMs', 'eff', 'holdMs']) o[k] = r3n(x[k]);
           o.bySpot = Array.isArray(x.bySpot) ? x.bySpot.map((d) => ({ spot: String(d.spot || '').slice(0, 16), size: r3n(d.size), errPx: r3n(d.errPx), ms: r3n(d.ms), slips: r3n(d.slips) })) : null;
@@ -4151,7 +4209,7 @@
     function openShare(from) {
       const p = payload();
       if (!p) {
-        const m = $({ done: 'doneMsg', intro: 'introMsg', gameEnd: 'gameHint', carryEnd: 'carryHint' }[from] || 'doneMsg');
+        const m = $({ done: 'doneMsg', intro: 'introMsg', gameEnd: 'gameHint', carryEnd: 'carryHint', fruitEnd: 'fruitHint' }[from] || 'doneMsg');
         if (m) m.textContent = 'Train a hand first: sharing needs a saved profile.';
         return;
       }
@@ -4163,6 +4221,7 @@
     $('shareBtn').onclick = () => openShare('done');
     $('gameShare').onclick = () => openShare('gameEnd');
     $('carryShare').onclick = () => openShare('carryEnd');
+    $('fruitShare').onclick = () => openShare('fruitEnd');
     $('shareGames').onchange = $('shareOld').onchange = () => {
       const p = payload();
       if (p) $('payload').textContent = JSON.stringify(p, null, 1);
@@ -4249,7 +4308,7 @@
       }
     }
     function startGame() {
-      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'aim'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       $('gComboL').textContent = 'Combo';
       $('gBestL').textContent = 'Best';
@@ -4735,7 +4794,7 @@
       CARRY_SIZES = [170, 130, 100];
     let C = null;
     function startCarry() {
-      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'aim'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       // the HUD's labels for this game, and no prompt timer left over from an earlier round
       $('gComboL').textContent = '📦 Delivered';
@@ -5016,6 +5075,604 @@
       };
       return out;
     }
+
+    // ---- 🍉 slice the fruit: a 60 s game of quick swipes, to train and measure fast hand movement (like Fruit Ninja on
+    // a camera console). Fruit is thrown up from below on arcs; a quick swipe through one slices it, no pinch needed. A
+    // slice is the cursor's path between two camera frames crossing the fruit while the cursor moves faster than a
+    // threshold set from this hand's top speed in training (so a slow drift never slices, and a swipe that passes a fruit
+    // between two frames still does). A wooden barrel is thrown now and then: let it pass. Slicing one costs points and ends a combo, never the round. There is no button hold here:
+    // what is measured is fast movement as the cursor shows it. Each round records the swipes' top speed, the share of
+    // swipes that cut something, how far behind the hand the cursor runs during swipes (the time shift that best lines up
+    // the hand's own path with the cursor's), how far the cursor runs past where the hand stopped, and how often the camera
+    // loses the hand mid-swipe. A gentler version (slower arcs, bigger fruit, an easier speed) is chosen for a shaky hand,
+    // or set with the 🐢 button. The settings are not tuned by this game.
+    const FRUIT_LEN = 60,
+      FRUIT_EMOJI = ['🍉', '🍊', '🍎', '🍋', '🍑', '🥝', '🍐'],
+      FRUIT_R = [30, 40, 52];
+    let FG = null;
+    function fruitGentleMode() {
+      try {
+        return localStorage.getItem('fruitGentle') || 'auto';
+      } catch (e) {
+        return 'auto';
+      }
+    }
+    function fruitGentleLabel() {
+      const m = fruitGentleMode();
+      $('fruitGentle').textContent = `🐢 Gentle: ${m}${m === 'auto' && FG ? (FG.gentle ? ' (on)' : ' (off)') : ''}`;
+    }
+    // the three swipe speeds (slow, comfortable, fast; px/s) measured in the warm-up, kept per hand in the profile when the
+    // hand is trained, otherwise beside it. They set the speed a swipe needs and whether the gentle mode is chosen.
+    function swipeGet(h) {
+      const q = profileHand(h);
+      if (q && q.swipe) return q.swipe;
+      try {
+        return (JSON.parse(localStorage.getItem('trainSwipes') || '{}') || {})[h] || null;
+      } catch (e) {
+        return null;
+      }
+    }
+    function swipeSet(h, v) {
+      let p = null;
+      try {
+        p = JSON.parse(localStorage.getItem(KEY) || 'null');
+      } catch (e) {}
+      if (p && p.hands && p.hands[h]) {
+        p.hands[h].swipe = v;
+        saveTune(p);
+        return;
+      }
+      try {
+        const all = JSON.parse(localStorage.getItem('trainSwipes') || '{}') || {};
+        all[h] = v;
+        localStorage.setItem('trainSwipes', JSON.stringify(all));
+      } catch (e) {}
+    }
+    const swipeToday = (sw) => !!(sw && sw.t && String(sw.t).slice(0, 10) === new Date().toISOString().slice(0, 10));
+    function fruitGentleFor(h) {
+      const m = fruitGentleMode();
+      if (m === 'on') return true;
+      if (m === 'off') return false;
+      const sw = swipeGet(h);
+      if (sw && sw.fast > 0) return sw.fast < 900;
+      const q = profileHand(h),
+        w = q && q.measured && q.measured.wobble;
+      let steady = null;
+      try {
+        steady = (JSON.parse(localStorage.getItem(KEY) || 'null') || {}).answers?.steady;
+      } catch (e) {}
+      return (w != null && w > 6) || steady === 'shaky';
+    }
+    // the speed a swipe needs, in screen px/s: from the warm-up when measured; otherwise a third of this hand's top speed in
+    // training (500–1200), 800 untrained; gentle: 80% (70% unmeasured) of that
+    function fruitThreshold(h, gentle) {
+      const sw = swipeGet(h);
+      // measured swipes: between the slow and the comfortable speed (40% of the way up), never under 300 px/s
+      if (sw && sw.slow > 0 && sw.mid > sw.slow) return Math.round(Math.max(300, (gentle ? 0.8 : 1) * (sw.slow + 0.4 * (sw.mid - sw.slow))));
+      const q = profileHand(h),
+        pk = q && q.measured && q.measured.fastPeak;
+      const t = pk > 0 ? clamp(0.35 * pk, 500, 1200) : 800;
+      return Math.round(gentle ? 0.7 * t : t);
+    }
+    function fruitSetup(h) {
+      FG.gentle = fruitGentleFor(h);
+      FG.thr = fruitThreshold(h, FG.gentle);
+      // flight time up and down about 2.4 s (gentle 3.2 s) for an arc reaching 60% up the screen
+      FG.g = (8 * 0.6 * innerHeight) / (FG.gentle ? 3.2 : 2.4) ** 2;
+    }
+    function startFruit() {
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
+      lightRoundStart(performance.now());
+      $('gComboL').textContent = '🍉 Sliced';
+      $('gBestL').textContent = 'Barrels';
+      clearTimeout(G && G.pt);
+      clearTimeout(C && C.pt);
+      if (FG) {
+        clearTimeout(FG.pt);
+        if (FG.cv) FG.cv.remove();
+      }
+      setTheme(pick('theme'));
+      sndOn = pick('snd') !== 'off';
+      clearTargets();
+      $('steps').hidden = true;
+      $('ask').hidden = true;
+      $('cam').hidden = false;
+      $('camCtl').hidden = false;
+      $('cur').hidden = false;
+      $('gameHud').hidden = false;
+      goFull();
+      const cv = document.createElement('canvas');
+      cv.id = 'fruitCv';
+      document.body.appendChild(cv);
+      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1 };
+      fruitSetup(HAND);
+      step = 'fruit';
+      S = {};
+      prompt('🍉 Swipe through the fruit', 'A quick swipe slices it, no pinch needed. Let the barrels pass. Rest your hand below the waist line to pause.');
+      fruitHud();
+      requestAnimationFrame(fruitTick);
+    }
+    function fruitHud() {
+      $('gScore').textContent = FG.score;
+      $('gTime').textContent = Math.ceil(Math.max(0, FG.left));
+      $('gCombo').textContent = FG.sliced;
+      $('gBest').textContent = FG.barrelsHit;
+    }
+    function fruitPaused(now) {
+      return restShown || !FG.lastHand || now - FG.lastHand > 400;
+    }
+    // the warm-up before a round: swipe across a band through the middle of the screen three times slowly, three times at
+    // a comfortable speed and three times as fast as you can. The median top speed of each level is kept for the hand.
+    const WARM_LEVELS = [
+      ['slow', '🐢 Swipe slowly across the band', 'Take your time: cross the whole band, three times.'],
+      ['mid', '🙂 Swipe at a comfortable speed', 'A normal, easy swipe across the band, three times.'],
+      ['fast', '⚡ Swipe as fast as you can', 'Cross the band as quickly as you comfortably can, three times.'],
+    ];
+    function fruitWarmStart() {
+      FG.warm = { level: 0, peaks: [[], [], []], inBand: false, enterX: 0, peak: 0, done: false, t0: performance.now() };
+      fruitWarmPrompt();
+    }
+    function fruitWarmPrompt() {
+      const w = FG.warm,
+        L = WARM_LEVELS[w.level];
+      prompt(`${L[1]} ${'✓'.repeat(w.peaks[w.level].length)}${'·'.repeat(3 - w.peaks[w.level].length)}`, L[2]);
+    }
+    // the band: the middle third of the screen's height; a swipe is a crossing of its middle 60% of width either way
+    function fruitWarmFrame(p, v) {
+      const w = FG.warm,
+        H = innerHeight,
+        W = innerWidth,
+        inY = p.y > H * 0.33 && p.y < H * 0.67;
+      if (!inY) {
+        w.inBand = false;
+        return;
+      }
+      if (!w.inBand) {
+        w.inBand = true;
+        w.enterX = p.x;
+        w.peak = 0;
+        return;
+      }
+      w.peak = Math.max(w.peak, v);
+      const travel = p.x - w.enterX;
+      // a crossing needs real movement: a hand that was lost and refound across the band is not a swipe
+      if (Math.abs(travel) >= 0.6 * W && w.peak > 60) {
+        w.peaks[w.level].push(w.peak);
+        w.inBand = false;
+        SND.tap();
+        if (w.peaks[w.level].length >= 3) {
+          if (w.level < 2) {
+            w.level++;
+            fruitWarmPrompt();
+          } else fruitWarmEnd();
+        } else fruitWarmPrompt();
+      }
+    }
+    function fruitWarmEnd() {
+      const w = FG.warm,
+        v = { slow: Math.round(median(w.peaks[0])), mid: Math.round(median(w.peaks[1])), fast: Math.round(median(w.peaks[2])), t: new Date().toISOString() };
+      // the levels must at least be in order: a "slow" faster than "comfortable" is read as the same speed
+      v.mid = Math.max(v.mid, v.slow + 1);
+      v.fast = Math.max(v.fast, v.mid + 1);
+      swipeSet(FG.hand || HAND, v);
+      FG.swipeV = v;
+      FG.warm = null;
+      FG.grace = true; // the tail of the last warm-up swipe is not a slice
+      fruitSetup(FG.hand || HAND);
+      FG.last = performance.now();
+      prompt('🍉 Swipe through the fruit', `A swipe needs ${FG.thr} px/s now. Let the barrels pass. Rest your hand below the waist line to pause.`);
+      clearTimeout(FG.pt);
+      FG.pt = setTimeout(() => step === 'fruit' && ($('prompt').hidden = true), 2500);
+    }
+    function fruitWarmDraw(x) {
+      const W = innerWidth,
+        H = innerHeight,
+        w = FG.warm;
+      x.fillStyle = 'rgba(127,200,255,0.12)';
+      x.fillRect(0, H * 0.33, W, H * 0.34);
+      x.strokeStyle = 'rgba(127,200,255,0.7)';
+      x.setLineDash([10, 8]);
+      x.lineWidth = 2;
+      x.strokeRect(1, H * 0.33, W - 2, H * 0.34);
+      x.setLineDash([]);
+      x.fillStyle = 'rgba(190,225,255,0.9)';
+      x.font = '600 18px system-ui, sans-serif';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.fillText(`${WARM_LEVELS[w.level][0] === 'slow' ? 'slowly' : WARM_LEVELS[w.level][0] === 'mid' ? 'comfortably' : 'as fast as you can'} · swipe ${w.peaks[w.level].length + 1} of 3 · warm-up ${w.level + 1} of 3`, W / 2, H * 0.5);
+      x.font = '28px system-ui, sans-serif';
+      x.fillText('⟵   ⟶', W / 2, H * 0.5 + 34);
+    }
+    function fruitVolley() {
+      const W = innerWidth,
+        H = innerHeight,
+        prog = clamp(FG.el / FRUIT_LEN, 0, 1),
+        n = 1 + (Math.random() < 0.25 + 0.35 * prog ? 1 : 0) + (Math.random() < 0.15 * prog ? 1 : 0);
+      for (let i = 0; i < n; i++) {
+        const barrel = FG.el > 5 && i === n - 1 && Math.random() < 0.125, // about one throw in eight
+          r = (barrel ? 34 : FRUIT_R[(Math.random() * 3) | 0]) * (FG.gentle ? 1.25 : 1),
+          x0 = W * (0.15 + 0.7 * Math.random()),
+          apex = H * (0.12 + 0.35 * Math.random()),
+          vy = -Math.sqrt(2 * FG.g * (H + r - apex)),
+          T = (2 * -vy) / FG.g,
+          vx = (W * (0.2 + 0.6 * Math.random()) - x0) / T;
+        FG.fruits.push({ x: x0, y: H + r, vx, vy, r, barrel, emoji: barrel ? '' : FRUIT_EMOJI[(Math.random() * FRUIT_EMOJI.length) | 0], rot: Math.random() * 6, vr: (Math.random() - 0.5) * 3 });
+        if (barrel) FG.barrelsThrown++;
+        else FG.thrown++;
+      }
+    }
+    function fruitTick(now) {
+      if (step !== 'fruit' || !FG) return;
+      requestAnimationFrame(fruitTick);
+      const dt = Math.min(0.05, (now - FG.last) / 1000);
+      FG.last = now;
+      if (!fruitPaused(now)) {
+        if (FG.wasPaused) {
+          FG.wasPaused = false;
+          $('prompt').hidden = true;
+        }
+        if (!FG.warm) {
+          FG.left -= dt;
+          FG.el += dt;
+          FG.spawnIn -= dt;
+        }
+        if (FG.spawnIn <= 0 && !FG.warm) {
+          fruitVolley();
+          const prog = clamp(FG.el / FRUIT_LEN, 0, 1);
+          FG.spawnIn = (FG.gentle ? 1.7 - 0.6 * prog : 1.3 - 0.6 * prog) * (0.8 + Math.random() * 0.4);
+        }
+        fruitStep(dt);
+      } else FG.wasPaused = true;
+      fruitDraw(now);
+      fruitHud();
+      if (FG.left <= 0) endFruit();
+    }
+    // move the fruit, the halves and the juice
+    function fruitStep(dt) {
+      const H = innerHeight;
+      for (let i = FG.fruits.length - 1; i >= 0; i--) {
+        const f_ = FG.fruits[i];
+        f_.vy += FG.g * dt;
+        f_.x += f_.vx * dt;
+        f_.y += f_.vy * dt;
+        f_.rot += f_.vr * dt;
+        if (f_.vy > 0 && f_.y - f_.r > H) FG.fruits.splice(i, 1); // fell back down unsliced: no penalty
+      }
+      for (const a of [FG.halves, FG.juice])
+        for (let i = a.length - 1; i >= 0; i--) {
+          const q = a[i];
+          q.vy += FG.g * dt;
+          q.x += q.vx * dt;
+          q.y += q.vy * dt;
+          q.rot = (q.rot || 0) + (q.vr || 0) * dt;
+          q.life -= dt;
+          if (q.life <= 0 || q.y - 60 > H) a.splice(i, 1);
+        }
+    }
+    function fruitDraw(now) {
+      const cv = FG.cv,
+        x = FG.ctx,
+        dpr = window.devicePixelRatio || 1;
+      if (cv.width !== Math.round(innerWidth * dpr) || cv.height !== Math.round(innerHeight * dpr)) {
+        cv.width = Math.round(innerWidth * dpr);
+        cv.height = Math.round(innerHeight * dpr);
+      }
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.clearRect(0, 0, innerWidth, innerHeight);
+      if (FG.warm) fruitWarmDraw(x);
+      // a sliced barrel: a brown flash fading over 0.4 s
+      const fl = FG.flash ? clamp(1 - (now - FG.flash) / 400, 0, 1) : 0;
+      if (fl > 0) {
+        x.fillStyle = `rgba(140,90,40,${0.25 * fl})`;
+        x.fillRect(0, 0, innerWidth, innerHeight);
+      }
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      for (const f_ of FG.fruits) {
+        x.save();
+        x.translate(f_.x, f_.y);
+        x.rotate(f_.rot);
+        if (f_.barrel) drawBarrel(x, f_.r);
+        else {
+          x.font = `${Math.round(f_.r * 1.9)}px serif`;
+          x.fillText(f_.emoji, 0, 0);
+        }
+        x.restore();
+      }
+      for (const h of FG.halves) {
+        x.save();
+        x.globalAlpha = clamp(h.life / 0.6, 0, 1);
+        x.translate(h.x, h.y);
+        x.rotate(h.ang + h.rot);
+        x.beginPath();
+        x.rect(-h.r * 1.2, h.side < 0 ? -h.r * 1.2 : 0, h.r * 2.4, h.r * 1.2);
+        x.clip();
+        x.rotate(-h.ang);
+        x.font = `${Math.round(h.r * 1.9)}px serif`;
+        x.fillText(h.emoji, 0, 0);
+        x.restore();
+      }
+      for (const j of FG.juice) {
+        x.globalAlpha = clamp(j.life / 0.5, 0, 1);
+        x.fillStyle = j.col;
+        x.beginPath();
+        x.arc(j.x, j.y, j.s, 0, 7);
+        x.fill();
+      }
+      x.globalAlpha = 1;
+      // the blade: the cursor's last 150 ms, fading and thinning toward the tail
+      const tr = FG.trail;
+      if (tr.length > 1) {
+        const tEnd = tr[tr.length - 1].t;
+        for (let i = 1; i < tr.length; i++) {
+          const a = clamp(1 - (tEnd - tr[i].t) / 150, 0, 1);
+          x.strokeStyle = `rgba(255,255,255,${0.9 * a})`;
+          x.lineWidth = 2 + 8 * a;
+          x.lineCap = 'round';
+          x.beginPath();
+          x.moveTo(tr[i - 1].x, tr[i - 1].y);
+          x.lineTo(tr[i].x, tr[i].y);
+          x.stroke();
+        }
+      }
+    }
+    // shortest distance from a point to the segment a-b
+    function segDist(a, b, p) {
+      const dx = b.x - a.x,
+        dy = b.y - a.y,
+        l2 = dx * dx + dy * dy,
+        u = l2 > 0 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1) : 0;
+      return Math.hypot(a.x + u * dx - p.x, a.y + u * dy - p.y);
+    }
+    // a wooden barrel: a rounded brown body, dark staves and two iron hoops; something to let pass, not to slice
+    function drawBarrel(x, r) {
+      const w = r * 1.5,
+        h = r * 1.9;
+      x.fillStyle = '#8a5a2b';
+      x.beginPath();
+      x.moveTo(-w / 2, -h / 2 + 6);
+      x.quadraticCurveTo(-w / 2 - 6, 0, -w / 2, h / 2 - 6);
+      x.lineTo(w / 2, h / 2 - 6);
+      x.quadraticCurveTo(w / 2 + 6, 0, w / 2, -h / 2 + 6);
+      x.closePath();
+      x.fill();
+      x.strokeStyle = 'rgba(60,35,10,0.8)';
+      x.lineWidth = 2;
+      for (let i = -2; i <= 2; i++) {
+        x.beginPath();
+        x.moveTo((i * w) / 5, -h / 2 + 6);
+        x.quadraticCurveTo((i * w) / 5 + Math.sign(i) * 3, 0, (i * w) / 5, h / 2 - 6);
+        x.stroke();
+      }
+      x.strokeStyle = '#3b3b3b';
+      x.lineWidth = 4;
+      for (const yy of [-h / 4, h / 4]) {
+        x.beginPath();
+        x.moveTo(-w / 2 - 2, yy);
+        x.lineTo(w / 2 + 2, yy);
+        x.stroke();
+      }
+    }
+    function sliceFruit(f_, a, b, sw) {
+      FG.fruits.splice(FG.fruits.indexOf(f_), 1);
+      if (f_.barrel) {
+        FG.barrelsHit++;
+        FG.score = Math.max(0, FG.score - 5);
+        FG.combo = 0;
+        FG.flash = performance.now();
+        SND.miss();
+        for (let i = 0; i < 14; i++) FG.juice.push({ x: f_.x, y: f_.y, vx: (Math.random() - 0.5) * 500, vy: (Math.random() - 0.8) * 500, life: 0.5, s: 3 + Math.random() * 4, col: '#8a5a2b' });
+        return;
+      }
+      FG.sliced++;
+      sw.cut++;
+      FG.combo++;
+      FG.bestCombo = Math.max(FG.bestCombo, sw.cut);
+      // a point a fruit, one more for a small one, and one more for each extra fruit in the same swipe
+      FG.score += 1 + (f_.r <= FRUIT_R[0] * (FG.gentle ? 1.25 : 1) ? 1 : 0) + (sw.cut > 1 ? 1 : 0);
+      const L = Math.hypot(b.x - a.x, b.y - a.y) || 1,
+        ux = (b.x - a.x) / L,
+        uy = (b.y - a.y) / L,
+        ang = Math.atan2(uy, ux);
+      for (const side of [-1, 1])
+        FG.halves.push({ x: f_.x, y: f_.y, vx: f_.vx + -uy * side * 140 + ux * 60, vy: f_.vy + ux * side * 140 + uy * 60, rot: 0, vr: side * 4, ang, side, r: f_.r, emoji: f_.emoji, life: 1.2 });
+      const col = { '🍉': '#ff4d6d', '🍊': '#ffa53b', '🍎': '#ff3b3b', '🍋': '#ffe14d', '🍑': '#ffb08a', '🥝': '#8bd450', '🍐': '#c8e05a' }[f_.emoji] || '#ff6';
+      for (let i = 0; i < 10; i++) FG.juice.push({ x: f_.x, y: f_.y, vx: (Math.random() - 0.5) * 400, vy: (Math.random() - 0.9) * 400, life: 0.5, s: 2 + Math.random() * 4, col });
+      const f0 = 523.25 * Math.pow(2, Math.min(sw.cut - 1, 12) / 12);
+      note(f0, 0, 0.08, 0.15);
+      note(f0 * 1.5, 0.04, 0.05, 0.2);
+    }
+    // how far behind the hand the cursor runs: the time shift (0–300 ms) at which the hand's own path, shifted later,
+    // lines up best with the cursor's path (the largest normalised cross-correlation of the two, x and y together)
+    function fruitLag(ser) {
+      if (ser.length < 8) return null;
+      const t0 = ser[0][0],
+        rawAt = (t) => {
+          if (t < t0) return null;
+          let i = 1;
+          while (i < ser.length && ser[i][0] < t) i++;
+          if (i >= ser.length) return [ser[ser.length - 1][1], ser[ser.length - 1][2]];
+          const a = ser[i - 1],
+            b = ser[i],
+            u = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 0;
+          return [a[1] + u * (b[1] - a[1]), a[2] + u * (b[2] - a[2])];
+        };
+      let best = null,
+        bestC = -2;
+      for (let tau = 0; tau <= 300; tau += 5) {
+        const P = [];
+        for (const s_ of ser) {
+          const r = rawAt(s_[0] - tau);
+          if (r) P.push([r[0], r[1], s_[3], s_[4]]);
+        }
+        if (P.length < 6) continue;
+        const m = [0, 1, 2, 3].map((k) => P.reduce((a, q) => a + q[k], 0) / P.length);
+        let num = 0,
+          da = 0,
+          db = 0;
+        for (const q of P) {
+          const ax = q[0] - m[0],
+            ay = q[1] - m[1],
+            bx_ = q[2] - m[2],
+            by_ = q[3] - m[3];
+          num += ax * bx_ + ay * by_;
+          da += ax * ax + ay * ay;
+          db += bx_ * bx_ + by_ * by_;
+        }
+        const c = da > 0 && db > 0 ? num / Math.sqrt(da * db) : -1;
+        if (c > bestC) {
+          bestC = c;
+          best = tau;
+        }
+      }
+      return bestC > 0.5 ? best : null;
+    }
+    function fruitEndSwipe(t) {
+      const sw = FG.swipe;
+      FG.swipe = null;
+      FG.post = { sw, tEnd: t, ser: [] };
+    }
+    // the 300 ms after a swipe: the overshoot (how far the cursor ran past where the hand finally stopped, along the
+    // swipe's direction) and the lag estimate over the whole swipe
+    function fruitClosePost() {
+      const P = FG.post;
+      FG.post = null;
+      const sw = P.sw,
+        all = [...sw.ser, ...P.ser];
+      let over = null;
+      if (P.ser.length) {
+        const last = P.ser[P.ser.length - 1],
+          dx = sw.end.x - sw.start.x,
+          dy = sw.end.y - sw.start.y,
+          L = Math.hypot(dx, dy) || 1;
+        over = 0;
+        for (const q of P.ser) over = Math.max(over, ((q[3] - last[1]) * dx + (q[4] - last[2]) * dy) / L);
+      }
+      FG.swipes.push({ peak: sw.peak, cut: sw.cut, lag: fruitLag(all), over });
+    }
+    function fruitLost(now) {
+      if (FG.lastHandT && now - FG.lastHandT < 600 && FG.lastSpeed >= 0.7 * FG.thr) FG.dropsFast++;
+    }
+    function fruitFrame(f, t, label) {
+      FG.lastHand = performance.now();
+      FG.lastHandT = t;
+      if (!FG.hand && (label === 'Left' || label === 'Right')) {
+        FG.hand = label;
+        setHand(label);
+        FG.profiled = applyProfile(label);
+        $('prompt').hidden = true;
+        startModelRound(FG, label, t, 'fruit');
+        fruitSetup(label);
+        const sw = swipeGet(label);
+        FG.swipeV = sw || null;
+        if (FG.remeasure || !swipeToday(sw)) fruitWarmStart();
+        FG.remeasure = false;
+      }
+      showCur(f.x, f.y);
+      const p = { x: f.x, y: f.y, t },
+        prev = FG.prev,
+        rx = f.rx != null ? f.rx : f.x,
+        ry = f.ry != null ? f.ry : f.y;
+      FG.prev = p;
+      FG.trail.push(p);
+      while (FG.trail.length && t - FG.trail[0].t > 150) FG.trail.shift();
+      FG.buf.push([t, rx, ry, f.x, f.y]);
+      while (FG.buf.length && t - FG.buf[0][0] > 400) FG.buf.shift();
+      if (FG.post) {
+        FG.post.ser.push([t, rx, ry, f.x, f.y]);
+        if (t - FG.post.tEnd > 300) fruitClosePost();
+      }
+      if (!prev || fruitPaused(performance.now())) return;
+      const v = Math.hypot(p.x - prev.x, p.y - prev.y) / (Math.max(1, t - prev.t) / 1000);
+      // a jump faster than any hand (over 10,000 px/s, i.e. most of the screen in a tenth of a second) is the tracker
+      // losing and refinding the hand, not a swipe: it slices nothing
+      if (v > 10000) {
+        if (FG.swipe) fruitEndSwipe(t);
+        if (FG.warm) FG.warm.inBand = false; // a refound hand starts a fresh crossing
+        return;
+      }
+      FG.lastSpeed = v;
+      if (FG.warm) {
+        fruitWarmFrame(p, v);
+        return;
+      }
+      if (FG.grace) {
+        if (v < FG.thr) FG.grace = false;
+        return;
+      }
+      if (v >= FG.thr) {
+        FG.fastFrames++;
+        if (!FG.swipe) {
+          if (FG.post) fruitClosePost();
+          FG.swipe = { peak: 0, cut: 0, start: { x: prev.x, y: prev.y }, end: p, slow: 0, ser: FG.buf.slice(0, -1) };
+        }
+        const sw = FG.swipe;
+        sw.peak = Math.max(sw.peak, v);
+        sw.slow = 0;
+        sw.end = p;
+        // the path since the last frame against every fruit in flight, so a fast swipe can't jump over one
+        for (const f_ of [...FG.fruits]) if (segDist(prev, p, f_) <= f_.r) sliceFruit(f_, prev, p, sw);
+      } else if (FG.swipe) {
+        FG.swipe.slow++;
+        if (FG.swipe.slow >= 2) fruitEndSwipe(t);
+      }
+      if (FG.swipe) FG.swipe.ser.push([t, rx, ry, f.x, f.y]);
+    }
+    function endFruit() {
+      step = 'gameover';
+      if (FG.swipe) fruitEndSwipe(FG.prev ? FG.prev.t : 0);
+      if (FG.post) fruitClosePost();
+      if (FG.cv) FG.cv.remove();
+      clearTargets();
+      $('gameHud').hidden = true;
+      $('prompt').hidden = true;
+      $('camCtl').hidden = true;
+      $('cam').hidden = true;
+      SND.finish();
+      G = G || {};
+      G.over = { t0: performance.now(), wasPinch: true, openSince: 0, btns: ['fruitAgain', 'fruitAim', 'fruitGentle', 'fruitRemeasure', 'replayBtn5', 'fruitShare', 'fruitBack'] };
+      const h = FG.hand || HAND,
+        sws = FG.swipes,
+        med = (a) => {
+          const v = a.filter((q) => q != null && isFinite(q));
+          return v.length ? median(v) : null;
+        },
+        peakV = med(sws.map((q) => q.peak)),
+        lagMs = med(sws.map((q) => q.lag)),
+        overPx = med(sws.map((q) => q.over)),
+        cutSwipes = sws.filter((q) => q.cut > 0).length,
+        acc = sws.length ? cutSwipes / sws.length : null,
+        hist = history(),
+        lt = lightRoundEnd();
+      endTrialRound(FG, h);
+      const aimB0 = { model: aimBest(h, 'model'), mapping: aimBest(h, 'mapping') };
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'fruit', v: APP_VER, hand: h, score: FG.score, sliced: FG.sliced, thrown: FG.thrown, barrelsHit: FG.barrelsHit, barrelsThrown: FG.barrelsThrown, swipes: sws.length, cutSwipes, bestCombo: FG.bestCombo, peakV: peakV != null ? Math.round(peakV) : null, acc, lagMs, overPx: overPx != null ? Math.round(overPx) : null, dropsFast: FG.dropsFast, fastFrames: FG.fastFrames, gentle: FG.gentle, thr: FG.thr, swipe: FG.swipeV ? { slow: FG.swipeV.slow, mid: FG.swipeV.mid, fast: FG.swipeV.fast } : null, trained: FG.profiled, model: FG.model || null, choices: null, features: FG.features || [], use: FG.use || null, mapping: FG.mapping || null, distCm: lt.distCm ?? null });
+      try {
+        localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
+      } catch (e) {}
+      const pctOf = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–'),
+        rows = [
+          ['Score', `<b style="color:var(--gold);font-size:1.3rem">${FG.score}</b>`],
+          ['Hand', `${h.toLowerCase()}${FG.profiled ? ', with your trained settings' : ', default settings'}${FG.gentle ? ' · gentle mode' : ''}`],
+          ['Hand model', modelSummary(FG, h)],
+          ['Camera model', camSummary(FG, h)],
+          ['Fruit sliced', `${FG.sliced} of ${FG.thrown} (${pctOf(FG.sliced, FG.thrown)})${FG.bestCombo > 1 ? ` · best: ${FG.bestCombo} in one swipe` : ''}`],
+          ['Barrels', FG.barrelsThrown ? `${FG.barrelsHit} of ${FG.barrelsThrown} sliced by mistake` : 'none thrown'],
+          ['Your swipes', FG.swipeV ? `slow ${FG.swipeV.slow} · comfortable ${FG.swipeV.mid} · fast ${FG.swipeV.fast} px/s (measured in the warm-up)` : 'not measured yet'],
+          ['Swipes', sws.length ? `${sws.length}, ${pctOf(cutSwipes, sws.length)} cut something · a swipe needs ${FG.thr} px/s` : `none yet: a swipe needs ${FG.thr} px/s`],
+          ['Swipe top speed', peakV == null ? '–' : `${Math.round(peakV)} px/s typical`],
+          ['Cursor lag in swipes', lagMs == null ? '–' : `${lagMs} ms behind your hand, typical (the shift that best lines up the cursor's path with your hand's)`],
+          ['Overshoot', overPx == null ? '–' : `${Math.round(overPx)} px past where your hand stopped, typical`],
+          ['Hand lost mid-swipe', FG.fastFrames + FG.dropsFast ? `${pctOf(FG.dropsFast, FG.fastFrames + FG.dropsFast)} of fast frames` : '–'],
+          ['Lighting', lightText(lt.light, lt.track)],
+        ];
+      const news = aimNews(h, FG, aimB0);
+      if (news) rows.unshift(['Aim', news]);
+      $('fruitSum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+      fruitGentleLabel();
+      $('fruitEnd').hidden = false;
+      $('fruitHint').hidden = false;
+    }
     function endCarry() {
       step = 'gameover';
       if (C.obj) C.obj.el.remove();
@@ -5128,7 +5785,7 @@
     // on the end card your hand works the buttons: move onto one and pinch, the same deliberate press as everywhere else
     // ---- the menus by hand: on whichever card is showing, every visible button, link and option chip is a target, with the
     // same hold and the same deliberate press (a fresh pinch after an open hand) as the end cards
-    const MENU_CARDS = ['aim', 'share', 'compare', 'gameEnd', 'carryEnd', 'done', 'intro'];
+    const MENU_CARDS = ['aim', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'done', 'intro'];
     function cardButtons() {
       const card = MENU_CARDS.map((id) => $(id)).find((c) => c && !c.hidden);
       if (!card) return [];
@@ -5165,8 +5822,8 @@
     function overFrame(f, t) {
       const o = G.over;
       if (!o) return;
-      const onShare = !$('share').hidden && (shareFrom === 'gameEnd' || shareFrom === 'carryEnd'),
-        endUp = !$('gameEnd').hidden || !$('carryEnd').hidden,
+      const onShare = !$('share').hidden && (shareFrom === 'gameEnd' || shareFrom === 'carryEnd' || shareFrom === 'fruitEnd'),
+        endUp = !$('gameEnd').hidden || !$('carryEnd').hidden || !$('fruitEnd').hidden,
         ids = onShare ? ['shareGo', 'shareGamesLbl', 'shareOldLbl', 'shareBack'] : endUp ? o.btns || ['gameAgain', 'gameAim', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack'] : null,
         btns = ids ? ids.map((id) => $(id)).filter((b) => b && !b.hidden) : cardButtons();
       if (!btns.length) return;
@@ -5232,7 +5889,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.40',
+        app: 'v0.41',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -5441,7 +6098,7 @@
       }
       e.target.value = '';
     };
-    ['replayBtn', 'replayBtn2', 'replayBtn3', 'replayBtn4'].forEach((id) => ($(id).onclick = () => showReplay()));
+    ['replayBtn', 'replayBtn2', 'replayBtn3', 'replayBtn4', 'replayBtn5'].forEach((id) => ($(id).onclick = () => showReplay()));
     window.addEventListener('resize', () => RP && !$('replay').hidden && rpDraw());
 
     // ---- camera and tracking
@@ -5573,14 +6230,14 @@
     function frame(L, t, label, W) {
       sideHint = false;
       let f = feat(L, t, W, label);
-      if (step === 'game' || step === 'carry') trackStill(f, t);
+      if (step === 'game' || step === 'carry' || step === 'fruit') trackStill(f, t);
       const c = $('cur');
       const menu = !step || step === 'done';
       if (!menu) MENU.on = false;
-      if (menu || step === 'game' || step === 'carry' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
+      if (menu || step === 'game' || step === 'carry' || step === 'fruit' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
       recFrame(t, L, f, label, REC.nHands || 1, false);
       dodge(f, t);
-      const ok = menu || step === 'ask' || step === 'done' || step === 'game' || step === 'carry' || step === 'gameover' || checkHand(label, t);
+      const ok = menu || step === 'ask' || step === 'done' || step === 'game' || step === 'carry' || step === 'fruit' || step === 'gameover' || checkHand(label, t);
       c.hidden = false;
       c.style.left = f.x + 'px';
       c.style.top = f.y + 'px';
@@ -5596,6 +6253,7 @@
       else if (step === 'ask') askFrame(f, t);
       else if (step === 'game') gameFrame(f, t, label);
       else if (step === 'carry') carryFrame(f, t, label);
+      else if (step === 'fruit') fruitFrame(f, t, label);
       else if (step === 'gameover') overFrame(f, t);
     }
     // ---- an imaginary vertical axis down the middle of you. In the mirrored view (as you see yourself) your right hand works
@@ -5723,7 +6381,8 @@
       if (!L) {
         $('cur').hidden = true;
         const rest = all.some(resting);
-        if (step === 'game' || step === 'carry') trackTick(false, rest, null);
+        if (step === 'game' || step === 'carry' || step === 'fruit') trackTick(false, rest, null);
+        if (step === 'fruit' && FG && !rest) fruitLost(now);
         recFrame(now, null, null, null, all.length, rest);
         if (step && step !== 'done' && step !== 'ask' && step !== 'gameover') {
           if (rest) {
@@ -5744,7 +6403,7 @@
         if (prevPrompt) $('prompt').innerHTML = prevPrompt;
       }
       if (step && step !== 'done' && step !== 'gameover') handSeen(true, now);
-      if (step === 'game' || step === 'carry') trackTick(true, false, pickd.score);
+      if (step === 'game' || step === 'carry' || step === 'fruit') trackTick(true, false, pickd.score);
       x.fillStyle = '#06d6a0';
       L.forEach((p) => {
         x.beginPath();
@@ -5849,6 +6508,40 @@
       startCarry();
     };
     $('carryAgain').onclick = () => startCarry();
+    $('fruit').onclick = async () => {
+      if (!(await startCamera($('introMsg')))) return;
+      startFruit();
+    };
+    $('fruit2').onclick = async () => {
+      if (!(await startCamera($('doneMsg')))) return;
+      startFruit();
+    };
+    $('fruitAgain').onclick = () => startFruit();
+    $('fruitRemeasure').onclick = () => {
+      startFruit();
+      FG.remeasure = true;
+    };
+    $('fruitAim').onclick = () => openAim('fruitEnd', (FG && FG.hand) || HAND);
+    $('fruitGentle').onclick = () => {
+      const order = ['auto', 'on', 'off'];
+      let m = 'auto';
+      try {
+        m = localStorage.getItem('fruitGentle') || 'auto';
+      } catch (e) {}
+      m = order[(order.indexOf(m) + 1) % 3];
+      try {
+        localStorage.setItem('fruitGentle', m);
+      } catch (e) {}
+      fruitGentleLabel();
+    };
+    $('fruitBack').onclick = () => {
+      $('fruitEnd').hidden = true;
+      if (step === 'gameover') step = null;
+      $('cur').hidden = true;
+      $('camCtl').hidden = true;
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      $(localStorage.getItem(KEY) ? 'done' : 'intro').hidden = false;
+    };
     $('carryUndo').onclick = () => {
       if (C && C.tune && C.tune.undo) C.tune.undo();
       $('carryUndo').hidden = true;
@@ -5895,6 +6588,11 @@
         $('ask').hidden = true;
         $('gameHud').hidden = true;
         $('lightChip').hidden = true;
+        if (held === 'fruit' && FG) {
+          if (FG.cv) FG.cv.remove();
+          FG.fruits = [];
+          FG.halves = [];
+        }
         if (held === 'carry' && C) {
           if (C.obj) C.obj.el.remove();
           if (C.zone) C.zone.el.remove();
@@ -5919,6 +6617,7 @@
           else if (held === 'ask') startAim();
           else if (held === 'game') startGame();
           else if (held === 'carry') startCarry();
+          else if (held === 'fruit') startFruit();
         };
         $('quitFs').onclick = () => {
           card.remove();
@@ -5972,6 +6671,7 @@
     window.trainFeatureSection = featureSection;
     window.trainTrialFit = (kind, rows) => { const F = trialFit(kind, rows, trialMetric); return { n: F.n, df: F.df, thr: F.thr, feats: Object.fromEntries(FEATURE_IDS.map((id) => [id, F.judge('feat', id)])), maps: Object.fromEntries(MAPPING_IDS.slice(1).map((m) => [m, F.judge('map', m)])) }; };
     window.trainOA = OA8;
+    window.trainFruit = { start: startFruit, frame: fruitFrame, end: endFruit, state: () => FG, lag: fruitLag, seg: segDist, volley: fruitVolley, step: fruitStep, lost: fruitLost };
     window.trainFeatState = FEAT_ST;
     window.trainUse = USE;
     window.trainSetModel = setModel;

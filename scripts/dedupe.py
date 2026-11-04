@@ -1,6 +1,6 @@
 """One-off clean-up: the same game round can have been shared more than once (each share used to repeat the last eight
 rounds). This rewrites data/results.jsonl keeping the first occurrence of each round, judged by the same key the
-collector now uses (kind, hand, date, score, pops, deliveries, missed pinches, slips). Results themselves are never
+collector now uses (kind, hand, date, score, pops, deliveries, missed pinches, slips, and for the fruit game sliced, thrown and swipes). Results themselves are never
 removed, only repeated game rounds inside them. Run it by hand, after a look at the dry run:
 
     python3 scripts/dedupe.py --dry-run      # counts only
@@ -9,7 +9,7 @@ removed, only repeated game rounds inside them. Run it by hand, after a look at 
 """
 import json, os, shutil, sys
 
-GAME_KEY = ('kind', 'hand', 't', 'score', 'pops', 'deliveries', 'missPress', 'slips')
+GAME_KEY = ('kind', 'hand', 't', 'score', 'pops', 'deliveries', 'missPress', 'slips', 'sliced', 'thrown', 'swipes')
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 dry = '--dry-run' in sys.argv
 path = args[0] if args else 'data/results.jsonl'
