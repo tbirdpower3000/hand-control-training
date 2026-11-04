@@ -6,17 +6,17 @@
   "all": {
    "snap": 72,
    "minCut": 0.28,
-   "beta": 2.05,
-   "n": 6,
+   "beta": 2.1,
+   "n": 7,
    "n3d": 0
   },
   "shaky": {
    "snap": 72,
    "minCut": 0.28,
    "beta": 2.1,
-   "n": 4,
+   "n": 5,
    "n3d": 0
   }
  },
- "results": 6
+ "results": 7
 }
