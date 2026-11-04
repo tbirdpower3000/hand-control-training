@@ -1010,7 +1010,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.41, 4 Nov 2026">v0.41</div>
+<div id="ver" title="Hand control training, version 0.42, 4 Nov 2026">v0.42</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -1031,7 +1031,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.41 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.42 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -5176,8 +5176,8 @@
       clearTargets();
       $('steps').hidden = true;
       $('ask').hidden = true;
-      $('cam').hidden = false;
-      $('camCtl').hidden = false;
+      $('cam').hidden = true; // the fruit game shows the camera shaded across the whole background instead of the moving window
+      $('camCtl').hidden = true;
       $('cur').hidden = false;
       $('gameHud').hidden = false;
       goFull();
@@ -5359,6 +5359,22 @@
       }
       x.setTransform(dpr, 0, 0, dpr, 0, 0);
       x.clearRect(0, 0, innerWidth, innerHeight);
+      // the camera as a still, shaded background (mirrored to match you), so you can see yourself behind the fruit without a
+      // moving window; it never moves, and a dark wash over it keeps the fruit readable
+      const vid = $('vid');
+      if (vid && vid.readyState >= 2 && vid.videoWidth) {
+        const scale = Math.max(innerWidth / vid.videoWidth, innerHeight / vid.videoHeight),
+          dw = vid.videoWidth * scale,
+          dh = vid.videoHeight * scale;
+        x.save();
+        x.globalAlpha = 0.18;
+        x.translate(innerWidth, 0);
+        x.scale(-1, 1);
+        x.drawImage(vid, (innerWidth - dw) / 2, (innerHeight - dh) / 2, dw, dh);
+        x.restore();
+      }
+      x.fillStyle = 'rgba(7,11,20,0.55)';
+      x.fillRect(0, 0, innerWidth, innerHeight);
       if (FG.warm) fruitWarmDraw(x);
       // a sliced barrel: a brown flash fading over 0.4 s
       const fl = FG.flash ? clamp(1 - (now - FG.flash) / 400, 0, 1) : 0;
@@ -5889,7 +5905,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.41',
+        app: 'v0.42',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
