@@ -31,6 +31,8 @@ jobs:
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          # only used to make a one-way code so each person counts once in the shared defaults; never stored
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
         run: python -I scripts/collect.py
       - name: Save the data
         run: |
