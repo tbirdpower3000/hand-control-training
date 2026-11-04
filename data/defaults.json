@@ -7,7 +7,7 @@
    "snap": 72,
    "minCut": 0.25,
    "beta": 1.5,
-   "n": 39,
+   "n": 40,
    "n3d": 0
   },
   "shaky": {
@@ -19,11 +19,11 @@
   },
   "steady": {
    "snap": 72,
-   "minCut": 0.265,
-   "beta": 2.05,
-   "n": 4,
+   "minCut": 0.28,
+   "beta": 2.1,
+   "n": 5,
    "n3d": 0
   }
  },
- "results": 39
+ "results": 40
 }
