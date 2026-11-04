@@ -1,4 +1,4 @@
-# Hand control training (v0.31)
+# Hand control training (v0.32)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -31,7 +31,7 @@ The profile (a few numbers) is saved in your browser. The atlas, which lives on 
 
 ## Sharing results
 
-At the end you can **share your results with the project**. It opens a GitHub issue pre-filled with the numbers (settings, measurements, your answers and ratings, browser type, screen size), and you press Submit yourself. A bot checks the numbers, stores them in `data/results.jsonl`, recomputes `data/defaults.json` (the medians, overall and per steadiness answer), and closes the issue. The atlas loads those shared defaults as its starting settings; a personal profile always overrides them.
+At the end you can **share your results with the project**. It opens a GitHub issue pre-filled with the numbers (settings, measurements, your answers and ratings, browser type, screen size), and you press Submit yourself. If you tick "Include my last game rounds", the scores, counts and precision numbers of your last few pop and carry rounds go with it, so the project can see how the games' tuning works out in practice; the game end cards have a Share results button too. A bot checks the numbers, stores them in `data/results.jsonl`, recomputes `data/defaults.json` (the medians, overall and per steadiness answer), and closes the issue. The atlas loads those shared defaults as its starting settings; a personal profile always overrides them.
 
 Please read [PRIVACY.md](PRIVACY.md) first. In short: the camera never leaves your computer; sharing is optional, public, and under your GitHub account; this is not a medical test.
 

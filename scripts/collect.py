@@ -54,6 +54,56 @@ for n, r in (rat.items() if isinstance(rat, dict) else []):
         fail('ratings malformed')
     if r.get('effort') is not None and r.get('effort') not in (1, 2, 3, 4, 5, 6, 7):
         fail('effort rating malformed')
+
+
+def num(v, lo=0, hi=1e6):
+    """a finite number in range, else None"""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or not (lo <= v <= hi):
+        return None
+    return round(float(v), 3)
+
+
+def game_rows(gs):
+    """the shared game rounds: a short list of known numbers only. Anything malformed drops the whole list."""
+    if not isinstance(gs, list) or len(gs) > 12:
+        return None
+    out = []
+    for g in gs:
+        if not isinstance(g, dict) or g.get('kind') not in ('game', 'carry') or g.get('hand') not in ('Right', 'Left'):
+            return None
+        o = {'kind': g['kind'], 'hand': g['hand'], 't': str(g.get('t', ''))[:10], 'score': num(g.get('score')), 'trained': bool(g.get('trained'))}
+        if g['kind'] == 'game':
+            for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'tp'):
+                o[n] = num(g.get(n))
+            o['accuracy'] = num(g.get('accuracy'), 0, 1)
+            bs = g.get('bySize')
+            if isinstance(bs, dict):
+                o['bySize'] = {}
+                for z, d in bs.items():
+                    if not isinstance(z, str) or len(z) > 16 or not isinstance(d, dict):
+                        return None
+                    o['bySize'][z] = {n: num(d.get(n)) for n in ('n', 'hit', 'fell', 'miss')}
+            else:
+                o['bySize'] = None
+        else:
+            for n in ('deliveries', 'slips', 'saves', 'errPx', 'timeMs', 'holdMs'):
+                o[n] = num(g.get(n))
+            o['eff'] = num(g.get('eff'), 0, 1)
+            bp = g.get('bySpot')
+            if isinstance(bp, list):
+                if len(bp) > 40:
+                    return None
+                o['bySpot'] = []
+                for d in bp:
+                    if not isinstance(d, dict) or not isinstance(d.get('spot', ''), str) or len(d.get('spot', '')) > 16:
+                        return None
+                    o['bySpot'].append({'spot': d.get('spot', ''), 'size': num(d.get('size')), 'errPx': num(d.get('errPx')), 'ms': num(d.get('ms')), 'slips': num(d.get('slips'))})
+            else:
+                o['bySpot'] = None
+        out.append(o)
+    return out
+
+
 # keep only the fields we know, so nothing else from the issue is stored
 rec = {
     'issue': int(ISSUE_NUM),
@@ -66,6 +116,7 @@ rec = {
     'browser': str(p.get('browser', ''))[:12],
     'touch': bool(p.get('touch')),
     'when': str(p.get('when', ''))[:10],
+    'games': game_rows(p.get('games')) if p.get('games') is not None else None,
 }
 os.makedirs('data', exist_ok=True)
 # the same issue twice (opened and labelled) counts once
@@ -108,5 +159,5 @@ defaults = {
     'results': len(rows),
 }
 json.dump(defaults, open(DEF, 'w'), indent=1)
-open('collect_msg.txt', 'w').write(f"Thank you! Your result is number {len(rows)}. The shared defaults in `data/defaults.json` are updated, and the atlas picks them up within a few minutes. Only the numbers in your JSON block were stored.")
+open('collect_msg.txt', 'w').write(f"Thank you! Your result is number {len(rows)}. The shared defaults in `data/defaults.json` are updated, and the atlas picks them up within a few minutes. Only the numbers in your JSON block were stored." + (" Your game rounds were included." if rec['games'] else "") + "")
 print('OK', len(rows))

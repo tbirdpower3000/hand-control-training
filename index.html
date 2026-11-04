@@ -797,7 +797,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.31, 4 Nov 2026">v0.31</div>
+<div id="ver" title="Hand control training, version 0.32, 4 Nov 2026">v0.32</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -817,7 +817,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.31 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.32 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -914,6 +914,7 @@
   <div class="row">
     <button type="button" class="primary" id="gameAgain">🎈 Play again</button>
     <button type="button" id="gameBack">← Back</button>
+    <button type="button" id="gameShare">Share results</button>
     <button type="button" id="replayBtn2">🎞 Replay</button>
     <button type="button" id="gameUndo" hidden>↶ Undo the tuning</button>
     <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">Go to the atlas</a>
@@ -944,6 +945,7 @@
   <div class="row">
     <button type="button" class="primary" id="carryAgain">📦 Play again</button>
     <button type="button" id="carryBack">← Back</button>
+    <button type="button" id="carryShare">Share results</button>
     <button type="button" id="replayBtn4">🎞 Replay</button>
     <button type="button" id="carryUndo" hidden>↶ Undo the tuning</button>
     <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">Go to the atlas</a>
@@ -969,10 +971,11 @@
   </p>
   <div class="warnbox">
     <b>What is sent, and where</b>
-    <span>Only the numbers below: measurements, your answers, your ratings, and a browser type. No video, pictures, names or email addresses.</span>
+    <span>Only the numbers below: measurements, your answers, your ratings, and a browser type. If the box is ticked, also your last game rounds (scores, counts and precision numbers). No video, pictures, names or email addresses.</span>
     <span>It is posted as a <b>public issue</b> on the project's GitHub page under your GitHub account, so your GitHub username will be attached to it and anyone can read it. You need a GitHub account (13 or older), and you press the final Submit button on GitHub yourself.</span>
     <span>Students under 13, or anyone at a school, should check with a teacher or parent first. If you'd rather not, just go back: nothing is sent unless you submit the issue.</span>
   </div>
+  <label><input type="checkbox" id="shareGames" checked> Include my last game rounds (scores and precision numbers only)</label>
   <pre id="payload"></pre>
   <div class="row">
     <button type="button" class="primary" id="shareGo">Open the GitHub form →</button>
@@ -2427,24 +2430,59 @@
         browser,
         touch: navigator.maxTouchPoints > 0,
         when: (p.trained || '').slice(0, 10),
+        games: $('shareGames').checked ? gameRows(8) : undefined,
       };
     }
-    $('shareBtn').onclick = () => {
+    // the last game rounds, reduced to known numbers only (no camera data, no free text)
+    const r3n = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v * 1000) / 1000 : null);
+    function gameRows(n) {
+      const rows = history().filter((x) => x.kind === 'game' || x.kind === 'carry').slice(-n);
+      return rows.map((x) => {
+        const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained };
+        if (x.kind === 'game') {
+          for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'tp']) o[k] = r3n(x[k]);
+          o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
+        } else {
+          for (const k of ['deliveries', 'slips', 'saves', 'errPx', 'timeMs', 'eff', 'holdMs']) o[k] = r3n(x[k]);
+          o.bySpot = Array.isArray(x.bySpot) ? x.bySpot.map((d) => ({ spot: String(d.spot || '').slice(0, 16), size: r3n(d.size), errPx: r3n(d.errPx), ms: r3n(d.ms), slips: r3n(d.slips) })) : null;
+        }
+        return o;
+      });
+    }
+    let shareFrom = 'done';
+    function openShare(from) {
       const p = payload();
-      if (!p) return;
+      if (!p) {
+        const m = $(from === 'done' ? 'doneMsg' : from === 'gameEnd' ? 'gameHint' : 'carryHint');
+        if (m) m.textContent = 'Train a hand first: sharing needs a saved profile.';
+        return;
+      }
+      shareFrom = from;
       $('payload').textContent = JSON.stringify(p, null, 1);
-      $('done').hidden = true;
+      $(from).hidden = true;
       $('share').hidden = false;
+    }
+    $('shareBtn').onclick = () => openShare('done');
+    $('gameShare').onclick = () => openShare('gameEnd');
+    $('carryShare').onclick = () => openShare('carryEnd');
+    $('shareGames').onchange = () => {
+      const p = payload();
+      if (p) $('payload').textContent = JSON.stringify(p, null, 1);
     };
     $('shareBack').onclick = () => {
       $('share').hidden = true;
-      $('done').hidden = false;
+      $(shareFrom).hidden = false;
     };
     $('shareGo').onclick = () => {
       const p = payload();
       if (!p) return;
-      const body = '```json\n' + JSON.stringify(p) + '\n```';
-      const u = `https://github.com/${REPO}/issues/new?labels=training-result&title=${encodeURIComponent('Training result')}&body=${encodeURIComponent(body)}`;
+      const mkUrl = () => `https://github.com/${REPO}/issues/new?labels=training-result&title=${encodeURIComponent('Training result')}&body=${encodeURIComponent('```json\n' + JSON.stringify(p) + '\n```')}`;
+      let u = mkUrl();
+      while (u.length > 7500 && p.games && p.games.length) {
+        p.games.shift();
+        if (!p.games.length) delete p.games;
+        u = mkUrl();
+      }
       if (u.length > 7500) {
         $('shareMsg').textContent = 'That result is too long for the form. Download the profile and attach it to a new issue instead.';
         return;
@@ -3144,7 +3182,7 @@
       $('camCtl').hidden = true;
       SND.finish();
       G = G || {};
-      G.over = { t0: performance.now(), wasPinch: true, openSince: 0, btns: ['carryAgain', 'carryUndo', 'replayBtn4', 'carryBack'] };
+      G.over = { t0: performance.now(), wasPinch: true, openSince: 0, btns: ['carryAgain', 'carryUndo', 'replayBtn4', 'carryShare', 'carryBack'] };
       const h = C.hand || HAND,
         d = C.done,
         err = d.length ? median(d.map((x) => x.errPx)) : null,
@@ -3229,7 +3267,7 @@
     function overFrame(f, t) {
       const o = G.over;
       if (!o || ($('gameEnd').hidden && $('carryEnd').hidden)) return;
-      const btns = (o.btns || ['gameAgain', 'gameUndo', 'replayBtn2', 'gameBack']).map((id) => $(id)).filter((b) => !b.hidden),
+      const btns = (o.btns || ['gameAgain', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack']).map((id) => $(id)).filter((b) => !b.hidden),
         fp = FLD.step(f, btns.map(rectItem), t, curSnap, curHold);
       showCur(fp.x, fp.y);
       const hot = fp.cap;
@@ -3307,7 +3345,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.31',
+        app: 'v0.32',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
