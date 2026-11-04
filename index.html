@@ -616,7 +616,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.19, 3 Nov 2026">v0.19</div>
+<div id="ver" title="Hand control training, version 0.21, 3 Nov 2026">v0.21</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -635,7 +635,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.19 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.21 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -918,10 +918,77 @@
       pOff = BASE.pOff,
       pinchOn = false;
     // a hand frame: the palm point (mirrored, as you see yourself), the pinch ratio, and the cursor on screen
-    function feat(L, t) {
+    // ---- fast and accelerating moves: an alpha-beta-gamma tracker (position, velocity and acceleration, predicted then
+    // corrected each frame) runs beside the smoothing. When the hand moves fast it takes over, leading the hand by up to
+    // 60 ms to cancel the camera's delay, and it stops leading the moment the hand decelerates, so a fast stop doesn't
+    // overshoot. Its gains rise with acceleration, so a sudden start is followed at once. A first-order high-pass filter
+    // (4 Hz) on the raw position picks out the quick, jittery part of the motion; while the hand is nearly still, a strong
+    // high-pass signal turns the smoothing up.
+    class Motion {
+      constructor() {
+        this.reset();
+      }
+      reset() {
+        this.p = null;
+        this.v = [0, 0];
+        this.a = [0, 0];
+        this.t = null;
+        this.hp = [0, 0];
+        this.z0 = null;
+        this.speed = 0;
+        this.fast = 0;
+        this.hpMag = 0;
+        this.vl = [0, 0];
+      }
+      step(z, t) {
+        if (!this.p) {
+          this.p = [z[0], z[1]];
+          this.z0 = [z[0], z[1]];
+          this.t = t;
+          return { lead: [z[0], z[1]], fast: 0, calm: 1 };
+        }
+        const dt = Math.max(1e-3, Math.min(0.1, (t - this.t) / 1000));
+        this.t = t;
+        // high-pass: y[n] = k (y[n-1] + x[n] − x[n-1]), k = RC / (RC + dt), cutoff 4 Hz
+        const rc = 1 / (2 * Math.PI * 4),
+          k = rc / (rc + dt);
+        for (let i = 0; i < 2; i++) this.hp[i] = k * (this.hp[i] + z[i] - this.z0[i]);
+        this.z0 = [z[0], z[1]];
+        this.hpMag += (Math.hypot(this.hp[0], this.hp[1]) - this.hpMag) * 0.2;
+        // alpha-beta-gamma: alpha from 0.5 (smooth) to 0.9 (follow) with acceleration; beta and gamma from the standard relations
+        const acc = Math.hypot(this.a[0], this.a[1]),
+          alpha = 0.5 + 0.4 * Math.min(1, acc / 25),
+          beta = 2 * (2 - alpha) - 4 * Math.sqrt(1 - alpha),
+          gamma = (beta * beta) / (2 * alpha);
+        for (let i = 0; i < 2; i++) {
+          const pp = this.p[i] + this.v[i] * dt + 0.5 * this.a[i] * dt * dt,
+            vp = this.v[i] + this.a[i] * dt,
+            r = z[i] - pp;
+          this.p[i] = pp + alpha * r;
+          this.v[i] = vp + (beta * r) / dt;
+          this.a[i] = this.a[i] * 0.9 + (2 * gamma * r) / (dt * dt);
+        }
+        // the velocity averaged over about 0.15 s: a tremor's back-and-forth cancels out, a real move doesn't, so a shaky but
+        // still hand never counts as fast
+        const kv = 1 - Math.exp(-dt / 0.15);
+        for (let i = 0; i < 2; i++) this.vl[i] += (this.v[i] - this.vl[i]) * kv;
+        this.speed = Math.hypot(this.vl[0], this.vl[1]); // in camera pictures per second
+        const s = Math.max(0, Math.min(1, (this.speed - 0.6) / 1.0));
+        this.fast = s * s * (3 - 2 * s);
+        const braking = this.vl[0] * this.a[0] + this.vl[1] * this.a[1] < 0,
+          lead = braking ? 0 : 0.06 * this.fast;
+        // while nearly still, strong high-pass energy (jitter) asks for more smoothing: 1 = none needed, down to 0.4
+        const calm = this.speed < 0.3 ? Math.max(0.4, Math.min(1, 1 - (this.hpMag - 0.002) / 0.008)) : 1;
+        return { lead: [this.p[0] + this.vl[0] * lead, this.p[1] + this.vl[1] * lead], fast: this.fast, calm };
+      }
+    }
+    const MOT = new Motion();
+    const fpW = new OneEuro(3, 1);
+    function feat(L, t, W) {
       const ax = (L[0].x + L[5].x + L[9].x + L[13].x + L[17].x) / 5,
         ay = (L[0].y + L[5].y + L[9].y + L[13].y + L[17].y) / 5;
       const pr = fp.f(d3(L[4], L[8]) / (d3(L[0], L[9]) || 1e-3), t);
+      const prW = W && W.length === 21 ? fpW.f(d3(W[4], W[8]) / (d3(W[0], W[9]) || 1e-3), t) : null;
       if (pinchOn ? pr > pOff : pr < pOn) pinchOn = !pinchOn;
       SPEC.push(ax, ay, t);
       // near the edge of the camera picture the tracker loses part of the hand and the landmarks jump, so the cutoff is
@@ -930,9 +997,13 @@
         edgeGain = edge < 0.08 ? 0.35 + 0.65 * (edge / 0.08) : 1,
         g = SPEC.gain * edgeGain,
         base = fx.minCut;
-      fx.minCut = fy.minCut = base * g;
-      const gx = fx.f(mx3(ax), t),
-        gy = fy.f(my3(ay), t),
+      const mo = MOT.step([ax, ay], t);
+      fx.minCut = fy.minCut = base * g * mo.calm;
+      const sx_ = fx.f(mx3(ax), t),
+        sy_ = fy.f(my3(ay), t),
+        // fast moves: the predictive tracker; slow ones: the smoothed point; a smooth blend in between
+        gx = sx_ + (mo.lead[0] - sx_) * mo.fast,
+        gy = sy_ + (mo.lead[1] - sy_) * mo.fast,
         mx = 1 - gx;
       fx.minCut = fy.minCut = base;
       // the reach box maps to the screen with a soft landing at the edges instead of a hard stop, so the cursor eases into a
@@ -949,6 +1020,7 @@
         my: gy,
         pr,
         pinch: pinchOn,
+        prW,
         noise: SPEC.info.noise,
         rx: clamp((1 - ax - reach.x0) / reach.xs, -0.2, 1.2) * innerWidth,
         ry: clamp((ay - reach.y0) / reach.ys, -0.2, 1.2) * innerHeight,
@@ -1158,10 +1230,16 @@
         return;
       }
       (S.buf = S.buf || []).push(raw);
+      if (f.prW != null) {
+        (S.bufW = S.bufW || []).push(f.prW);
+        (S.pairs = S.pairs || []).push([raw, f.prW]);
+      }
       if (t - S.t0 < 1000) return;
       (S.phase === 'open' ? S.open : S.closed).push(median(S.buf));
+      if (S.bufW && S.bufW.length) (S.phase === 'open' ? (S.openW = S.openW || []) : (S.closedW = S.closedW || [])).push(median(S.bufW));
       SND.tap();
       S.buf = [];
+      S.bufW = [];
       S.t0 = null;
       if (S.phase === 'open') S.phase = 'closed';
       else {
@@ -1179,6 +1257,35 @@
       pOff = clamp(Math.max(pOn + 0.12, c + 0.5 * g), 0.3, 0.7);
       R.pOn = pOn;
       R.pOff = pOff;
+      // the transform: world = a · image + b, fitted by least squares over every pinch-step frame, with its fit quality (r²).
+      // The atlas's thresholds come from your own world-space open hand and pinch, the same rule as above; if those are
+      // missing, from the transform; if that's poor, it keeps the image numbers.
+      const pts = S.pairs || [];
+      if (pts.length >= 20) {
+        const n = pts.length,
+          mx = pts.reduce((a, p) => a + p[0], 0) / n,
+          my = pts.reduce((a, p) => a + p[1], 0) / n,
+          sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0),
+          sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0),
+          syy = pts.reduce((a, p) => a + (p[1] - my) ** 2, 0),
+          a = sxx > 1e-9 ? sxy / sxx : 1,
+          b = my - a * mx,
+          r2 = sxx > 1e-9 && syy > 1e-9 ? (sxy * sxy) / (sxx * syy) : 0;
+        R.pinchMap = { a: +a.toFixed(4), b: +b.toFixed(4), r2: +r2.toFixed(3), n };
+      }
+      if (S.openW && S.closedW && S.openW.length && S.closedW.length) {
+        const oW = median(S.openW),
+          cW = median(S.closedW),
+          gW = oW - cW;
+        R.openW = oW;
+        R.closedW = cW;
+        const on = clamp(cW + 0.25 * gW, 0.15, 0.45);
+        R.kW = { pOn: +on.toFixed(4), pOff: +clamp(Math.max(on + 0.12, cW + 0.5 * gW), 0.3, 0.7).toFixed(4) };
+      } else if (R.pinchMap && R.pinchMap.r2 > 0.6) {
+        const m = R.pinchMap,
+          on = clamp(m.a * pOn + m.b, 0.15, 0.45);
+        R.kW = { pOn: +on.toFixed(4), pOff: +clamp(Math.max(on + 0.12, m.a * pOff + m.b), 0.3, 0.7).toFixed(4) };
+      }
       setTimeout(() => check('pinch'), 400);
     }
 
@@ -1680,6 +1787,9 @@
       R.hands = R.hands || {};
       R.hands[HAND] = {
         k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff },
+        // the same pinch thresholds in the atlas's 3D world space, and the image-to-world transform they came with
+        kW: R.kW || null,
+        pinchMap: R.pinchMap || null,
         reach: R.reach || null,
         ratings: R.ratings || null,
         measured: {
@@ -1702,7 +1812,7 @@
       if (next) {
         // the other hand: same exercises again, starting from the answers, with this hand's measurements set aside
         SND.step();
-        ['reach', 'reachNote', 'open', 'closed', 'pOn', 'pOff', 'wobble', 'minCut', 'beta', 'snap', 'snapBoost', 'tries', 'time', 'ratings', 'aimRes', 'fast'].forEach((k) => delete R[k]);
+        ['reach', 'reachNote', 'open', 'closed', 'pOn', 'pOff', 'kW', 'pinchMap', 'openW', 'closedW', 'wobble', 'minCut', 'beta', 'snap', 'snapBoost', 'tries', 'time', 'ratings', 'aimRes', 'fast'].forEach((k) => delete R[k]);
         redo = {};
         resetFilters();
         setHand(next);
@@ -1753,6 +1863,7 @@
         rows.push([`<span style="color:var(--blue)">${h} hand</span>`, '']);
         rows.push(['Reach', q.reach ? `${Math.round(q.reach.xs * 100)} × ${Math.round(q.reach.ys * 100)}% of the camera view` : 'default']);
         rows.push(['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${m.open != null ? ` (open ${m.open.toFixed(2)}, firm pinch ${m.closed.toFixed(2)})` : ''}`]);
+        if (q.kW) rows.push(['Pinch in 3D', `on below ${q.kW.pOn.toFixed(2)}, off above ${q.kW.pOff.toFixed(2)}${q.pinchMap ? ` · world = ${q.pinchMap.a.toFixed(2)} × image ${q.pinchMap.b >= 0 ? '+' : '−'} ${Math.abs(q.pinchMap.b).toFixed(2)}, r² ${q.pinchMap.r2.toFixed(2)}` : ''}`]);
         rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}${m.tremorHz ? `, tremor band peak ${m.tremorHz} Hz, noise ${Math.round(m.noise * 100)}%` : ''}`]);
         rows.push(['Button pull', `${k.snap} px${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
         if (m.fastPeak != null) rows.push(['Fast moves', `peak ${m.fastPeak} px/s, cursor lag ${m.fastLag} px, overshoot ${m.fastOver ?? '–'} px, settles in ${m.fastSettle != null ? (m.fastSettle / 1000).toFixed(2) + ' s' : '–'}`]);
@@ -1861,6 +1972,7 @@
       pOff = BASE.pOff;
       pinchOn = false;
       SPEC.reset();
+      MOT.reset();
     }
     async function begin() {
       $('intro').hidden = true;
@@ -1959,9 +2071,9 @@
       cam.className = camQ;
       camT = t;
     }
-    function frame(L, t, label) {
+    function frame(L, t, label, W) {
       sideHint = false;
-      const f = feat(L, t),
+      const f = feat(L, t, W),
         c = $('cur');
       dodge(f, t);
       const ok = step === 'ask' || step === 'done' || checkHand(label, t);
@@ -2020,11 +2132,12 @@
       lastT = v.currentTime;
       const now = performance.now(),
         r = landmarker.detectForVideo(v, now),
-        all = (r.landmarks || []).map((L, i) => ({ L, label: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).categoryName }));
+        all = (r.landmarks || []).map((L, i) => ({ L, W: (r.worldLandmarks || [])[i], label: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).categoryName }));
       // the hand in use: of the hands in view, the one on the trained hand's side of your midline, preferring the one the
       // tracker also names as that hand; the other hand is ignored completely
       const pickd = pickHand(all),
         L = pickd && pickd.L,
+        W = pickd && pickd.W,
         label = pickd && pickd.label;
       const cv = $('cv');
       cv.width = v.videoWidth;
@@ -2082,7 +2195,7 @@
         x.arc(p.x * cv.width, p.y * cv.height, 4, 0, 7);
         x.fill();
       });
-      frame(L, now, label);
+      frame(L, now, label, W);
     }
     $('go').onclick = async () => {
       const m = $('introMsg');
@@ -2174,7 +2287,7 @@
       }
     } catch (e) {}
     // for testing without a camera: feed hand frames and start the exercises directly
-    window.trainFeed = (L, t, label) => frame(L, t, label || HAND);
+    window.trainFeed = (L, t, label, W) => frame(L, t, label || HAND, W);
     window.trainBegin = begin;
     window.trainCheck = check;
     window.trainPick = (all) => pickHand(all);
