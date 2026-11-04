@@ -1,15 +1,15 @@
 {
  "format": "hand-control-defaults",
  "version": 1,
- "note": "Shared starting settings for hand control, the medians of results people chose to share from the training page. The atlas loads these as its defaults once at least 10 results are in; a personal profile always overrides them. Cleared on 3 Nov 2026: the first results (before training v0.21) are kept in data/archive and not used.",
+ "note": "Shared starting settings for hand control, the medians of results people chose to share from the training page. The atlas loads these as its defaults; a personal profile always overrides them.",
  "groups": {
   "all": {
-   "snap": 28,
-   "minCut": 0.8,
-   "beta": 3,
-   "n": 0,
+   "snap": 72,
+   "minCut": 0.28,
+   "beta": 1.1964,
+   "n": 1,
    "n3d": 0
   }
  },
- "results": 0
+ "results": 1
 }
