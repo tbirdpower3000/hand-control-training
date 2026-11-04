@@ -296,6 +296,47 @@
   .bubble.fell {
     opacity: 0;
   }
+  .carryObj {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 32%, #fff3c4 0 10%, var(--gold) 55%, #b8862a 100%);
+    border: 2px solid #ffe9a8;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+    display: grid;
+    place-items: center;
+    font-size: 1.4rem;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+  }
+  .carryObj.hot {
+    box-shadow: 0 0 0 4px rgba(255, 216, 138, 0.6), 0 4px 16px rgba(0, 0, 0, 0.45);
+  }
+  .carryObj.held {
+    transform: translate(-50%, -50%) scale(1.12);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 0 0 4px rgba(255, 216, 138, 0.7);
+  }
+  .carryZone {
+    border-radius: 18px;
+    background: rgba(90, 170, 255, 0.18);
+    border: 3px dashed rgba(120, 190, 255, 0.9);
+    display: grid;
+    place-items: center;
+    color: rgba(190, 225, 255, 0.95);
+    font-weight: 600;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .carryZone.ok {
+    background: rgba(125, 255, 154, 0.22);
+    border-color: var(--good);
+    border-style: solid;
+  }
+  .carryZone.got {
+    background: rgba(125, 255, 154, 0.4);
+    border-color: var(--good);
+    border-style: solid;
+    transition: opacity 0.4s;
+    opacity: 0;
+  }
   .popfx {
     position: fixed;
     z-index: 4;
@@ -756,7 +797,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.30, 4 Nov 2026">v0.30</div>
+<div id="ver" title="Hand control training, version 0.31, 4 Nov 2026">v0.31</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -776,7 +817,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.30 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.31 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -842,6 +883,7 @@
   <div class="row">
     <button type="button" class="primary" id="go">✋ Start training (full screen)</button>
     <button type="button" id="play">🎈 Pop the bubbles (game)</button>
+    <button type="button" id="carry">📦 Carry the disc (game)</button>
     <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">← Back to the atlas</a>
   </div>
   <p class="muted" id="introMsg"></p>
@@ -855,6 +897,7 @@
     <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">← Back to the atlas</a>
     <button type="button" id="again">Train again</button>
     <button type="button" id="play2">🎈 Pop the bubbles</button>
+    <button type="button" id="carry2">📦 Carry the disc</button>
     <button type="button" id="replayBtn">🎞 Replay what happened</button>
     <button type="button" id="dl">⤓ Download profile</button>
     <button type="button" id="shareBtn">Share results with the project</button>
@@ -892,6 +935,20 @@
     <span class="muted" style="font-size:0.85rem">Hand points, cursor, targets and presses only: no camera picture. Kept in this tab until you reload; sent nowhere.</span>
   </div>
 </div>
+
+<section class="card" id="carryEnd" hidden>
+  <h2>📦 Disc delivered</h2>
+  <dl id="carrySum"></dl>
+  <p id="carryHint" hidden style="color:var(--gold);font-weight:600">✋ Hands work here too: move onto a button and pinch. Pinch 📦 Play again for a new round.</p>
+  <p class="muted">Kept in this browser only. The carry game measures holding a pinch while moving, how precisely you can place something, how often the disc slips and how the corners compare with the middle, and fine-tunes the trained settings of the hand that played (the pinch-off threshold, the hold on targets, smoothing, and the reach box toward slow corners). It pauses while your hand rests below the waist line.</p>
+  <div class="row">
+    <button type="button" class="primary" id="carryAgain">📦 Play again</button>
+    <button type="button" id="carryBack">← Back</button>
+    <button type="button" id="replayBtn4">🎞 Replay</button>
+    <button type="button" id="carryUndo" hidden>↶ Undo the tuning</button>
+    <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">Go to the atlas</a>
+  </div>
+</section>
 
 <section class="card" id="compare" hidden>
   <h2>Right and left compared</h2>
@@ -1842,19 +1899,6 @@
     $('confirmNo').onclick = () => unpick();
     // pinching a number with the hand cursor presses it
 
-    // ---- buttons as lenses (Snell's law). Each button or bubble is a patch of "glass" with a higher refractive index n,
-    // graded smoothly from 1 out in the open to nMax inside it (the gradient spans 120% of your button pull). The cursor is
-    // a ray: each frame it moves by the hand's own movement, divided by n where it is, and its direction refracts at the
-    // change of n by Snell's law, n1·sin θ1 = n2·sin θ2, measured from the gradient of n (the "normal").
-    //  · going in, it bends toward the button's centre and slows down, so it overshoots less;
-    //  · inside, the hand's movement is divided by nMax, so a jitter moves the cursor only a fraction as far;
-    //  · going out at a shallow angle (sliding along the edge, which is what jitter does) it meets total internal reflection
-    //    and stays in; only a move outward, close to the normal, gets out.
-    // Because the cursor then isn't exactly where the hand points, it drifts back to the hand: quickly in the open, slowly
-    // inside a lens, and at once if the hand is clearly elsewhere (further than the lens reaches), so it never gets stuck.
-    // A lens moves with its bubble, carrying the cursor inside it. While the fingers close for a pinch, n is raised further,
-    // so the slide of the palm as you pinch can't drag the cursor off. nMax comes from the hand's profile (k.lens).
-    // The Targets step (4) has no lenses, because it measures your own aim.
     class Field {
       constructor() {
         this.reset();
@@ -1862,13 +1906,12 @@
       reset() {
         this.lastCap = null;
         this.lastCapT = 0;
-        this.capHist = []; // [t, key] for the last 400 ms: a press is resolved by a vote over them, centred 180 ms back
+        this.capHist = [];
         this.p = null;
         this.raw = null;
         this.prev = new Map(); // each item's centre last frame, to carry the cursor with a moving bubble
         this.pr = [];
       }
-      // n at a point: 1 in the open, rising to nMax at and inside an item's edge
       n(x, y, items, span, nMax) {
         let g = 0;
         for (const it of items) {
@@ -1882,8 +1925,6 @@
         return { n: 1 + (nMax - 1) * g, inside: null };
       }
       step(f, items, t, snap, nMax) {
-        // a fast-moving hand feels the lenses only weakly (down to a fifth), so a button on the way to another one doesn't
-        // bend the cursor off course; a slow approach and the pinch itself get the full strength
         nMax = 1 + ((nMax || 2.5) - 1) * (1 - 0.8 * Math.max(0, Math.min(1, f.fast || 0)));
         const span = Math.max(36, snap * 1.2);
         this.pr.push([t, f.pr]);
@@ -1894,7 +1935,6 @@
           this.raw = [f.x, f.y];
         }
         let [px, py] = this.p;
-        // a lens that moved carries the cursor inside it
         const cur = this.n(px, py, items, span, nMax);
         if (cur.inside && this.prev.has(cur.inside.key)) {
           const [ox, oy] = this.prev.get(cur.inside.key);
@@ -1909,28 +1949,24 @@
         const kClose = closing ? 3 : 1;
         if (len > 1e-6) {
           const n1 = this.n(px, py, items, span, nMax).n * kClose;
-          // the normal: the gradient of n, by central differences (pointing toward higher n, i.e. into the lens)
           const e = 3,
             gx = this.n(px + e, py, items, span, nMax).n - this.n(px - e, py, items, span, nMax).n,
             gy = this.n(px, py + e, items, span, nMax).n - this.n(px, py - e, items, span, nMax).n,
             gl = Math.hypot(gx, gy);
           let ux = dx / len,
             uy = dy / len;
-          // where the ray is heading, to find n2
           const n2 = this.n(px + ux * (len / n1), py + uy * (len / n1), items, span, nMax).n * kClose;
           if (gl > 1e-6 && Math.abs(n2 - n1) > 1e-4) {
             let nx = gx / gl,
               ny = gy / gl;
             let cos1 = ux * nx + uy * ny;
             if (cos1 < 0) {
-              // moving down the gradient (outward): use the outward normal
               nx = -nx;
               ny = -ny;
               cos1 = -cos1;
             }
             const sin1 = Math.sqrt(Math.max(0, 1 - cos1 * cos1)),
               sin2 = (n1 / n2) * sin1;
-            // the tangential direction (along the edge)
             let tx = ux - cos1 * nx,
               ty = uy - cos1 * ny;
             const tl = Math.hypot(tx, ty);
@@ -1939,7 +1975,6 @@
               ty /= tl;
             }
             if (sin2 >= 1) {
-              // total internal reflection: the outward part of the move turns back in
               ux = tx * sin1 - nx * cos1;
               uy = ty * sin1 - ny * cos1;
             } else {
@@ -1952,18 +1987,16 @@
           px += (ux * len) / nm;
           py += (uy * len) / nm;
         }
-        // drift back to where the hand points: fast in the open, slow inside a lens, at once if the hand is far away
         const here = this.n(px, py, items, span, nMax),
           off = Math.hypot(f.x - px, f.y - py),
-          inLens = (here.n - 1) / Math.max(1e-6, nMax - 1),
-          k = off > span * 1.6 ? 0.35 : 0.25 * (1 - inLens) + (len > 0.5 ? 0.02 : 0) * inLens; // inside a lens, a still hand doesn't drift
+          inHold = (here.n - 1) / Math.max(1e-6, nMax - 1),
+          k = off > span * 1.6 ? 0.35 : 0.25 * (1 - inHold) + (f.drag ? 0.15 : len > 0.5 ? 0.02 : 0) * inHold;
         px += (f.x - px) * (closing ? k * 0.2 : k);
         py += (f.y - py) * (closing ? k * 0.2 : k);
         px = clamp(px, 0, innerWidth);
         py = clamp(py, 0, innerHeight);
         this.p = [px, py];
         const fin = this.n(px, py, items, span, nMax);
-        // captured: the cursor is inside an item, or within a few px of its edge
         let cap = fin.inside;
         if (!cap)
           for (const it of items)
@@ -1971,19 +2004,16 @@
               cap = it;
               break;
             }
-        // late-press forgiveness: for 150 ms after the cursor slips off a target, a press still counts for it
         if (cap) {
           this.lastCap = cap.key;
           this.lastCapT = t;
-        } else if (closing && this.lastCap) this.lastCapT = t; // while the fingers close, the last target is held for the press
+        } else if (closing && this.lastCap) this.lastCapT = t;
         this.capHist.push([t, cap ? cap.key : null]);
         while (this.capHist.length && t - this.capHist[0][0] > 400) this.capHist.shift();
         const recent = cap ? cap.key : this.lastCap && t - this.lastCapT < 150 && items.some((it) => it.key === this.lastCap) ? this.lastCap : null;
-        const under = items.find((it) => it.dist(f.x, f.y) <= 0); // the target under the hand itself
+        const under = items.find((it) => it.dist(f.x, f.y) <= 0);
         return { x: px, y: py, cap: cap ? cap.key : null, recent, hand: under ? under.key : null, n: fin.n };
       }
-      // the target a press was meant for: a weighted vote over the captures of the last 400 ms, each weighted by a curve
-      // centred 180 ms before now (the fingers closing drag the cursor, so where it was a moment earlier is what was aimed at)
       vote(t) {
         const w = new Map();
         let total = 0;
@@ -2013,11 +2043,10 @@
       c.style.left = x + 'px';
       c.style.top = y + 'px';
     };
-    let curSnap = BASE.snap, // the button pull of the hand in use (from its profile), which sizes the lenses
-      curLens = 2.5; // and how strongly they slow the cursor (nMax, k.lens)
+    let curSnap = BASE.snap,
+      curHold = 2.5;
     const FLD = new Field();
-    // a shakier hand gets stronger lenses: 2 for a steady one, up to 4
-    const lensFor = (wobble) => +clamp(2 + Math.max(0, (wobble || 0) - 2) / 4, 2, 4).toFixed(2);
+    const holdFor = (wobble) => +clamp(2 + Math.max(0, (wobble || 0) - 2) / 4, 2, 4).toFixed(2);
 
     // ---- tricks from game design
     // 1. speed-based gain (pointer ballistics, as on a mouse or a console): slow hand movements move the cursor less than
@@ -2058,7 +2087,6 @@
       B.t = t;
       return Object.assign({}, f, { x: B.x, y: B.y });
     }
-    // 2. forgiving presses: a press just after slipping off a target counts (the lens's "recent" target, 150 ms), and a
     //    press a moment early counts when the cursor arrives while the fingers are still closed (also 150 ms)
     function pressTarget(fp, fresh, f, t, st) {
       if (fresh) {
@@ -2070,7 +2098,7 @@
       }
       if (st.buf && f.pinch && t - st.buf < 150 && (fp.cap || fp.hand)) {
         st.buf = 0;
-        return fp.cap || fp.hand; // the lens slows the cursor while the fingers close, so the hand itself arriving counts too
+        return fp.cap || fp.hand;
       }
       if (st.buf && (!f.pinch || t - st.buf >= 150)) {
         st.buf = 0;
@@ -2098,7 +2126,7 @@
     function askFrame(f, t) {
       if (!f.pinch) askOpen = askOpen || t;
       const btns = [...$('scale').querySelectorAll('button'), ...(picked ? [$('confirmYes'), $('confirmNo')] : [])],
-        fp = FLD.step(f, btns.map(rectItem), t, Math.max(curSnap, R.snap || 0), step === 'ask' && R.wobble != null ? lensFor(R.wobble) : curLens);
+        fp = FLD.step(f, btns.map(rectItem), t, Math.max(curSnap, R.snap || 0), step === 'ask' && R.wobble != null ? holdFor(R.wobble) : curHold);
       showCur(fp.x, fp.y);
       const hot = fp.cap;
       btns.forEach((b) => b.classList.toggle('hot', b === hot));
@@ -2157,7 +2185,8 @@
     // times on the first card or the summary. Nothing here is shown in the normal flow or shared.
     function showCompare() {
       const h = history(),
-        T = h.filter((x) => x.kind !== 'game'),
+        T = h.filter((x) => x.kind !== 'game' && x.kind !== 'carry'),
+        cr = { Right: h.filter((x) => x.kind === 'carry' && x.hand === 'Right'), Left: h.filter((x) => x.kind === 'carry' && x.hand === 'Left') },
         by = { Right: T.filter((x) => x.hand === 'Right'), Left: T.filter((x) => x.hand === 'Left') },
         gm = { Right: h.filter((x) => x.kind === 'game' && x.hand === 'Right'), Left: h.filter((x) => x.kind === 'game' && x.hand === 'Left') };
       const avg = (a, f) => {
@@ -2187,11 +2216,17 @@
         ['Pop game: small bubbles popped', (a, g) => avg(last(g, 5), (x) => (x.bySize && x.bySize.small && x.bySize.small.n ? x.bySize.small.hit / x.bySize.small.n : null)), '%'],
         ['Pop game: precision (effective width, px)', (a, g) => avg(last(g, 5), (x) => x.effW), 'i'],
         ['Pop game: throughput (bits/s)', (a, g) => avg(last(g, 5), (x) => x.tp), 'x'],
+        ['Carry game: rounds', (a, g, c) => c.length, 'n'],
+        ['Carry game: deliveries per round', (a, g, c) => avg(last(c, 5), (x) => x.deliveries), '1'],
+        ['Carry game: slips per round', (a, g, c) => avg(last(c, 5), (x) => x.slips), '1'],
+        ['Carry game: placement error (px)', (a, g, c) => avg(last(c, 5), (x) => x.errPx), 'i'],
+        ['Carry game: time per delivery', (a, g, c) => avg(last(c, 5), (x) => x.timeMs), 's'],
+        ['Carry game: path straightness', (a, g, c) => avg(last(c, 5), (x) => x.eff), '%'],
       ];
       const tbl = rows
         .map(([label, f, kind]) => {
-          const r = f(by.Right, gm.Right),
-            l = f(by.Left, gm.Left),
+          const r = f(by.Right, gm.Right, cr.Right),
+            l = f(by.Left, gm.Left, cr.Left),
             fr = kind === 'n' ? String(r) : fmt(r, kind),
             fl = kind === 'n' ? String(l) : fmt(l, kind);
           return `<tr><th>${label}</th><td>${fr}</td><td>${fl}</td></tr>`;
@@ -2260,7 +2295,7 @@
       R.time = time;
       R.hands = R.hands || {};
       R.hands[HAND] = {
-        k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff, lens: lensFor(R.wobble) },
+        k: { snap: R.snap, minCut: R.minCut ?? BASE.minCut, beta: R.beta ?? BASE.beta, pOn: R.pOn ?? BASE.pOn, pOff: R.pOff ?? BASE.pOff, lens: holdFor(R.wobble) },
         // the same pinch thresholds in the atlas's 3D world space, and the image-to-world transform they came with
         kW: R.kW || null,
         pinchMap: R.pinchMap || null,
@@ -2340,7 +2375,7 @@
         rows.push(['Pinch', `on below ${k.pOn.toFixed(2)}, off above ${k.pOff.toFixed(2)}${m.open != null ? ` (open ${m.open.toFixed(2)}, firm pinch ${m.closed.toFixed(2)})` : ''}`]);
         if (q.kW) rows.push(['Pinch in 3D', `on below ${q.kW.pOn.toFixed(2)}, off above ${q.kW.pOff.toFixed(2)}${q.pinchMap ? ` · world = ${q.pinchMap.a.toFixed(2)} × image ${q.pinchMap.b >= 0 ? '+' : '−'} ${Math.abs(q.pinchMap.b).toFixed(2)}, r² ${q.pinchMap.r2.toFixed(2)}` : ''}`]);
         rows.push(['Smoothing', `${smooth}${m.wobble != null ? `, wobble ${m.wobble.toFixed(1)} px` : ''}${m.tremorHz ? `, tremor band peak ${m.tremorHz} Hz, noise ${Math.round(m.noise * 100)}%` : ''}`]);
-        rows.push(['Button pull', `${k.snap} px${k.lens ? `, lens ×${k.lens}` : ''}${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
+        rows.push(['Button pull', `${k.snap} px${k.lens ? `, hold ×${k.lens}` : ''}${m.tries != null ? ` (${m.tries.toFixed(1)} extra tries per target, ${(m.time / 1000).toFixed(1)} s typical)` : ''}`]);
         if (m.fastPeak != null) rows.push(['Fast moves', `peak ${m.fastPeak} px/s, cursor lag ${m.fastLag} px, overshoot ${m.fastOver ?? '–'} px, settles in ${m.fastSettle != null ? (m.fastSettle / 1000).toFixed(2) + ' s' : '–'}`]);
         if (q.corners && q.corners.length) rows.push(['Corners, how easy', q.corners.map((c) => `${c.corner} ${c.score}/7${c.auto ? ' (measured)' : ''}`).join(' · ')]);
         rows.push(['How easy', q.ratings ? Object.entries(q.ratings).map(([a, b]) => `${a} ${b.score}/7${b.auto ? ' (measured)' : ''}`).join(' · ') : '–']);
@@ -2444,7 +2479,7 @@
       } catch (e) {}
       const q = p ? (p.hands && p.hands[h]) || (!p.hands && p.k ? p : null) : null;
       curSnap = q && q.k && q.k.snap ? q.k.snap : BASE.snap;
-      curLens = q && q.k && q.k.lens ? q.k.lens : lensFor(q && q.measured && q.measured.wobble);
+      curHold = q && q.k && q.k.lens ? q.k.lens : holdFor(q && q.measured && q.measured.wobble);
       FLD.reset();
       if (q && q.k) {
         reach = Object.assign({}, q.reach || BASE_REACH_NOW);
@@ -2588,7 +2623,7 @@
         }
       });
       // each bubble is a field that moves with it; the captured bubble is the one a pinch pops
-      const fp = FLD.step(f, G.bubbles.map((b) => ({ key: b, cx: bx(b), cy: b.y, dist: (x, y) => Math.hypot(x - bx(b), y - b.y) - b.r })), t, curSnap, curLens);
+      const fp = FLD.step(f, G.bubbles.map((b) => ({ key: b, cx: bx(b), cy: b.y, dist: (x, y) => Math.hypot(x - bx(b), y - b.y) - b.r })), t, curSnap, curHold);
       showCur(fp.x, fp.y);
       G.bubbles.forEach((b) => b.el.classList.toggle('hot', b === fp.cap));
       // samples for tuning: the pinch ratio of an open hand while aiming at a bubble, the firmest point of each pinch, and
@@ -2614,7 +2649,6 @@
         if (back) G.drift.push(Math.hypot(f.x - back[1], f.y - back[2]));
       }
       if (!gamePaused(performance.now())) {
-        // the lens's captured bubble pops (or the one it held a moment ago, or the one it reaches a moment after an early
         // press); otherwise a bubble within its invisible hit area, which is bigger than the drawn bubble for the small ones
         // (at least 40 px from the centre). Precision is measured from where your hand pointed (f), not the pulled cursor.
         const hit = pressTarget(fp, fresh, f, t, G);
@@ -2758,14 +2792,14 @@
         const ns = clamp(k.snap + Math.min(6, Math.round(near * 25)), 28, 72);
         if (ns !== k.snap) out.changes.push(`button pull ${k.snap}→${ns} px (${Math.round(near * 100)}% of pinches just missed)`);
         k.snap = ns;
-        const l0 = k.lens || curLens,
+        const l0 = k.lens || curHold,
           l1 = +clamp(l0 + 0.25, 2, 4).toFixed(2);
-        if (l1 !== l0) out.changes.push(`lens strength ${l0}→${l1}`);
+        if (l1 !== l0) out.changes.push(`hold strength ${l0}→${l1}`);
         k.lens = l1;
       } else if (near < 0.03 && acc > 0.9 && k.snap > 30) {
         out.changes.push(`button pull ${k.snap}→${k.snap - 1} px (clean round)`);
         k.snap -= 1;
-        if ((k.lens || curLens) > 2) k.lens = +Math.max(2, (k.lens || curLens) - 0.1).toFixed(2);
+        if ((k.lens || curHold) > 2) k.lens = +Math.max(2, (k.lens || curHold) - 0.1).toFixed(2);
       }
       if (!out.changes.length) {
         out.note = 'Your settings already fit this round: nothing to change.';
@@ -2813,6 +2847,334 @@
       const we = effWidth();
       if (we == null) return '–';
       return `your pops spread over about ${we} px: targets at least that wide are easy for you (the small bubbles are ${SIZES[0][1]} px)`;
+    }
+    // ---- the carry game: pick up a disc (move onto it, pinch and hold), carry it into the shaded square and open the hand
+    // to drop it. The square visits the four corners and then the middle, then again smaller. It measures holding a pinch
+    // while moving (slips), placement error, delivery time and how straight the path was. Settings aren't changed by it.
+    const CARRY_SPOTS = [
+      ['top left', 0.14, 0.2],
+      ['top right', 0.86, 0.2],
+      ['bottom right', 0.86, 0.8],
+      ['bottom left', 0.14, 0.8],
+      ['middle', 0.5, 0.5],
+    ];
+    const CARRY_LEN = 60,
+      CARRY_SIZES = [170, 130, 100];
+    let C = null;
+    function startCarry() {
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      setTheme(pick('theme'));
+      sndOn = pick('snd') !== 'off';
+      clearTargets();
+      $('steps').hidden = true;
+      $('ask').hidden = true;
+      $('cam').hidden = false;
+      $('camCtl').hidden = false;
+      $('cur').hidden = false;
+      $('gameHud').hidden = false;
+      goFull();
+      C = { score: 0, i: 0, done: [], slips: 0, slipsThis: 0, saves: 0, held: false, obj: null, zone: null, left: CARRY_LEN, last: performance.now(), lastHand: 0, wasPinch: true, openSince: 0, hand: null, profiled: false, path: 0, lastP: null, t0: 0, pickT: 0, pickAt: null, openAt: 0, holdOff: [] };
+      step = 'carry';
+      S = {};
+      prompt('📦 Pick up the disc: move onto it, pinch and hold', 'Carry it into the shaded square and open your hand to drop it. Rest your hand below the waist line to pause.');
+      placeDisc(innerWidth / 2, innerHeight / 2);
+      nextZone();
+      carryHud();
+      requestAnimationFrame(carryTick);
+    }
+    function carryHud() {
+      $('gScore').textContent = C.score;
+      $('gTime').textContent = Math.ceil(C.left);
+      $('gCombo').textContent = '📦' + C.done.length;
+    }
+    function placeDisc(x, y) {
+      if (C.obj) C.obj.el.remove();
+      x = clamp(x, 40, innerWidth - 40);
+      y = clamp(y, 40, innerHeight - 40);
+      const el = tgt('carryObj', x, y, '🪙');
+      C.obj = { el, x, y, r: 30 };
+    }
+    function moveDisc(x, y) {
+      C.obj.x = x;
+      C.obj.y = y;
+      C.obj.el.style.left = x + 'px';
+      C.obj.el.style.top = y + 'px';
+    }
+    function nextZone() {
+      if (C.zone) {
+        const old = C.zone.el;
+        old.classList.add('got');
+        setTimeout(() => old.remove(), 450);
+      }
+      const spot = CARRY_SPOTS[C.i % CARRY_SPOTS.length],
+        sz = CARRY_SIZES[Math.min(CARRY_SIZES.length - 1, Math.floor(C.i / CARRY_SPOTS.length))],
+        x = clamp(spot[1] * innerWidth, sz / 2 + 8, innerWidth - sz / 2 - 8),
+        y = clamp(spot[2] * innerHeight, sz / 2 + 8, innerHeight - sz / 2 - 8),
+        el = tgt('carryZone', x, y, spot[0]);
+      el.style.width = el.style.height = sz + 'px';
+      C.zone = { el, x, y, s: sz, spot: spot[0], dist: (px, py) => Math.max(Math.abs(px - x), Math.abs(py - y)) - sz / 2 };
+      C.t0 = performance.now();
+      C.zoneT = null;
+    }
+    function carryPaused(now) {
+      return restShown || !C.lastHand || now - C.lastHand > 400;
+    }
+    function carryTick(now) {
+      if (step !== 'carry') return;
+      requestAnimationFrame(carryTick);
+      const dt = Math.min(0.1, (now - C.last) / 1000);
+      C.last = now;
+      if (carryPaused(now)) {
+        C.wasPaused = true;
+        return;
+      }
+      if (C.wasPaused) {
+        C.wasPaused = false;
+        $('prompt').hidden = true;
+      }
+      C.left -= dt;
+      carryHud();
+      if (C.left <= 0) endCarry();
+    }
+    function carryFrame(f, t, label) {
+      C.lastHand = performance.now();
+      if (!C.hand && (label === 'Left' || label === 'Right')) {
+        C.hand = label;
+        setHand(label);
+        C.profiled = applyProfile(label);
+        $('gBest').textContent = '–';
+        $('prompt').hidden = true;
+      }
+      const o = C.obj,
+        z = C.zone;
+      // not held: the disc is the only target. Held: the square is, so it holds the cursor (and the disc) like a button
+      const items = C.held ? [{ key: z, cx: z.x, cy: z.y, dist: z.dist }] : [{ key: o, cx: o.x, cy: o.y, dist: (x, y) => Math.hypot(x - o.x, y - o.y) - o.r }];
+      if (C.held) f.drag = true; // carrying: inside the square the disc keeps closing on the hand, so it can be placed
+      const fp = FLD.step(f, items, t, curSnap, curHold);
+      if (C.zoneT == null) C.zoneT = t;
+      showCur(fp.x, fp.y);
+      o.el.classList.toggle('hot', !C.held && fp.cap === o);
+      if (!f.pinch) C.openSince = C.openSince || t;
+      const fresh = f.pinch && !C.wasPinch && C.openSince && t - C.openSince > 150;
+      if (!carryPaused(performance.now())) {
+        if (!C.held) {
+          const hit = pressTarget(fp, fresh, f, t, C);
+          if (hit === o || (fresh && fp.hand === o)) {
+            C.buf = 0;
+            C.held = true;
+            C.pickT = t;
+            C.pickAt = [o.x, o.y];
+            C.path = 0;
+            C.lastP = [fp.x, fp.y];
+            C.openAt = 0;
+            C.slipsThis = 0;
+            o.el.classList.add('held');
+            SND.tap();
+            juice(fp.x, fp.y, null);
+          }
+          C.expired = false;
+        } else {
+          // carried: the disc rides the cursor. An open hand drops it, after 80 ms of grace (a flicker of the pinch
+          // detector doesn't count); a drop inside the square is a delivery, outside it the disc stays where it fell
+          C.path += Math.hypot(fp.x - C.lastP[0], fp.y - C.lastP[1]);
+          C.lastP = [fp.x, fp.y];
+          moveDisc(fp.x, fp.y);
+          const inside = z.dist(o.x, o.y) <= 0;
+          z.el.classList.toggle('ok', inside);
+          if (f.pinch) {
+            if (C.openAt) C.saves++;
+            C.openAt = 0;
+          } else {
+            C.openAt = C.openAt || t;
+            if (t - C.openAt > 80) {
+              C.held = false;
+              C.openAt = 0;
+              o.el.classList.remove('held');
+              z.el.classList.remove('ok');
+              if (inside) {
+                const err = Math.hypot(o.x - z.x, o.y - z.y),
+                  straight = Math.hypot(o.x - C.pickAt[0], o.y - C.pickAt[1]),
+                  ms = t - (C.zoneT == null ? t : C.zoneT),
+                  bonus = Math.max(0, 5 - Math.round(err / 12));
+                C.done.push({ spot: z.spot, size: z.s, errPx: Math.round(err), ms: Math.round(ms), holdMs: Math.round(t - C.pickT), eff: C.path > 1 ? Math.min(1, straight / C.path) : null, slips: C.slipsThis });
+                C.score += 10 + bonus;
+                const f0 = 523.25 * Math.pow(2, Math.min(C.done.length - 1, 12) / 12);
+                note(f0, 0, 0.08, 0.2);
+                note(f0 * 1.5, 0.05, 0.05, 0.25);
+                const fx_ = document.createElement('div');
+                fx_.className = 'popfx';
+                fx_.style.left = o.x + 'px';
+                fx_.style.top = o.y + 'px';
+                fx_.textContent = '+' + (10 + bonus);
+                document.body.appendChild(fx_);
+                setTimeout(() => fx_.remove(), 700);
+                C.i++;
+                nextZone();
+              } else {
+                C.slips++;
+                C.slipsThis++;
+                SND.miss();
+                moveDisc(clamp(o.x, 40, innerWidth - 40), clamp(o.y, 40, innerHeight - 40));
+                prompt('Dropped outside the square', 'Pick the disc up again: move onto it, pinch and hold until it is inside.');
+                clearTimeout(C.pt);
+                C.pt = setTimeout(() => step === 'carry' && ($('prompt').hidden = true), 1800);
+              }
+            }
+          }
+        }
+      }
+      if (f.pinch) C.openSince = 0;
+      C.wasPinch = f.pinch;
+    }
+    // the carry game tunes the saved settings of the hand that played, like the pop game does, from what carrying shows:
+    // slips and pinch flickers -> a wider gap between pinch-on and pinch-off; a disc that lands short of the square's
+    // centre -> a weaker hold; a wandering path -> more smoothing, a clean one -> less lag; corners that take much longer
+    // than the middle -> a bigger reach box on that side. Judged by the next round's score: a clearly worse round undoes it.
+    function carryTune(h) {
+      let p = null;
+      try {
+        p = JSON.parse(localStorage.getItem(KEY) || 'null');
+      } catch (e) {}
+      const q = p && p.hands && p.hands[h];
+      if (!q || !q.k) return { note: 'Train this hand and the carry game will fine-tune its settings each round.' };
+      const out = { changes: [] },
+        sameK = p.k && JSON.stringify(p.k) === JSON.stringify(q.k),
+        T = q.carryTune,
+        d = C.done,
+        n = d.length;
+      if (T && T.pending && n >= 4 && T.score != null) {
+        if (C.score < T.score * 0.8) {
+          q.k = T.before.k;
+          q.kW = T.before.kW;
+          if (T.before.reach) q.reach = T.before.reach;
+          out.changes.push(`undid the last change (score ${T.score} → ${C.score})`);
+          out.reverted = true;
+        }
+        T.pending = false;
+      } else if (T && T.pending) out.note = `Still judging the last change: ${n} deliveries this round, 4 needed.`;
+      if (out.reverted || n < 4 || (T && T.pending)) {
+        if (n < 4 && !out.reverted) out.note = 'Not enough deliveries this round to tune anything (4 or more needed).';
+        q.carryTune = T || null;
+        if (sameK) p.k = q.k;
+        saveTune(p);
+        return out;
+      }
+      const before = { k: Object.assign({}, q.k), kW: q.kW ? Object.assign({}, q.kW) : null, reach: q.reach ? Object.assign({}, q.reach) : null },
+        k = Object.assign({}, q.k),
+        kW = q.kW ? Object.assign({}, q.kW) : null,
+        rch = Object.assign({}, q.reach || BASE_REACH_NOW);
+      // 1. slips and pinch flickers: the pinch lets go too easily -> widen the on/off gap (off threshold up)
+      const slipRate = (C.slips + 0.5 * C.saves) / n;
+      if (slipRate > 0.2) {
+        const off = +clamp(k.pOff + Math.min(0.06, 0.03 * Math.round(slipRate * 5)), k.pOn + 0.1, 0.75).toFixed(3);
+        if (off !== k.pOff) {
+          out.changes.push(`pinch off ${k.pOff.toFixed(2)}→${off.toFixed(2)} (${C.slips} slips, ${C.saves} flickers)`);
+          k.pOff = off;
+        }
+        if (kW) kW.pOff = +clamp(kW.pOff + 0.03, kW.pOn + 0.08, 0.95).toFixed(3);
+      }
+      // 2. placement: the disc stops where the square holds it. Landing well short of the centre -> a weaker hold;
+      // tight landings with no slips -> a little stronger hold is affordable (it steadies the edges)
+      const err = median(d.map((x) => x.errPx)),
+        l0 = k.lens || curHold;
+      if (err > 30) {
+        const l1 = +clamp(l0 - 0.25, 1.5, 4).toFixed(2);
+        if (l1 !== l0) out.changes.push(`hold strength ${l0}→${l1} (landing ${Math.round(err)} px from the centre)`);
+        k.lens = l1;
+      } else if (err < 15 && C.slips === 0 && l0 < 4) {
+        k.lens = +clamp(l0 + 0.1, 1.5, 4).toFixed(2);
+        out.changes.push(`hold strength ${l0}→${k.lens} (tight landings)`);
+      }
+      // 3. the path: a wandering carry -> more smoothing; a straight, quick one -> less lag
+      const eff = d.filter((x) => x.eff != null),
+        effM = eff.length ? eff.reduce((a, x) => a + x.eff, 0) / eff.length : null;
+      if (effM != null && effM < 0.85) {
+        const mc = +clamp(k.minCut - 0.1, 0.4, 2).toFixed(2);
+        if (mc !== k.minCut) out.changes.push(`smoothing ${k.minCut}→${mc} (path ${Math.round(effM * 100)}% straight)`);
+        k.minCut = mc;
+      } else if (effM != null && effM > 0.97 && k.minCut < 1.5) {
+        const mc = +clamp(k.minCut + 0.05, 0.4, 1.5).toFixed(2);
+        out.changes.push(`smoothing ${k.minCut}→${mc} (straight paths: less lag)`);
+        k.minCut = mc;
+      }
+      // 4. the edges: a corner that takes much longer than the rest (or the middle) -> the reach box grows on that side
+      const mid = d.filter((x) => x.spot === 'middle').map((x) => x.ms),
+        ref = mid.length ? median(mid) : median(d.map((x) => x.ms)),
+        grew = [];
+      for (const [spot, cx, cy] of CARRY_SPOTS) {
+        if (spot === 'middle') continue;
+        const t = d.filter((x) => x.spot === spot).map((x) => x.ms);
+        if (!t.length || median(t) < ref * 1.6) continue;
+        if (cx < 0.5 && rch.x0 > 0.05) rch.x0 = +(rch.x0 - 0.02).toFixed(3), (rch.xs = +(rch.xs + 0.02).toFixed(3));
+        if (cx > 0.5 && rch.x0 + rch.xs < 0.95) rch.xs = +(rch.xs + 0.02).toFixed(3);
+        if (cy < 0.5 && rch.y0 > 0.05) rch.y0 = +(rch.y0 - 0.02).toFixed(3), (rch.ys = +(rch.ys + 0.02).toFixed(3));
+        if (cy > 0.5 && rch.y0 + rch.ys < 0.95) rch.ys = +(rch.ys + 0.02).toFixed(3);
+        grew.push(spot);
+      }
+      if (grew.length) out.changes.push(`reach box grown toward the ${grew.join(', ')} (those corners took longer)`);
+      if (!out.changes.length) {
+        out.note = 'Your settings already fit this round: nothing to change.';
+        q.carryTune = T || null;
+        saveTune(p);
+        return out;
+      }
+      q.k = k;
+      if (kW) q.kW = kW;
+      if (grew.length) q.reach = rch;
+      q.carryTune = { t: new Date().toISOString(), score: C.score, pending: true, before, rounds: ((T && T.rounds) || 0) + 1 };
+      if (sameK) p.k = q.k;
+      saveTune(p);
+      out.undo = () => {
+        q.k = before.k;
+        q.kW = before.kW;
+        if (before.reach) q.reach = before.reach;
+        q.carryTune = Object.assign({}, q.carryTune, { pending: false, undone: true });
+        if (sameK) p.k = q.k;
+        saveTune(p);
+      };
+      return out;
+    }
+    function endCarry() {
+      step = 'gameover';
+      if (C.obj) C.obj.el.remove();
+      if (C.zone) C.zone.el.remove();
+      clearTargets();
+      $('gameHud').hidden = true;
+      $('prompt').hidden = true;
+      $('camCtl').hidden = true;
+      SND.finish();
+      G = G || {};
+      G.over = { t0: performance.now(), wasPinch: true, openSince: 0, btns: ['carryAgain', 'carryUndo', 'replayBtn4', 'carryBack'] };
+      const h = C.hand || HAND,
+        d = C.done,
+        err = d.length ? median(d.map((x) => x.errPx)) : null,
+        ms = d.length ? median(d.map((x) => x.ms)) : null,
+        eff = d.filter((x) => x.eff != null),
+        effM = eff.length ? eff.reduce((a, x) => a + x.eff, 0) / eff.length : null,
+        hold = d.length ? median(d.map((x) => x.holdMs)) : null;
+      const hist = history();
+      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d });
+      try {
+        localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
+      } catch (e) {}
+      const rows = [
+        ['Score', `<b style="color:var(--gold);font-size:1.3rem">${C.score}</b>`],
+        ['Hand', `${h.toLowerCase()}${C.profiled ? ', with your trained settings' : ', default settings'}`],
+        ['Delivered', `${d.length} of ${C.i + (C.zone ? 1 : 0)} squares${d.length >= CARRY_SPOTS.length ? ' (all four corners and the middle' + (d.length >= 2 * CARRY_SPOTS.length ? ', twice' : '') + ')' : ''}`],
+        ['Slips', `${C.slips} (the disc dropped outside a square)${C.saves ? ` · ${C.saves} flickers of the pinch held through` : ''}`],
+        ['Placement', err == null ? '–' : `${Math.round(err)} px from the centre, typical`],
+        ['Time per delivery', ms == null ? '–' : `${(ms / 1000).toFixed(1)} s typical, from the square appearing`],
+        ['Path straightness', effM == null ? '–' : `${Math.round(effM * 100)}% (100% = a straight line from pick-up to drop)`],
+        ['Hold', hold == null ? '–' : `${(hold / 1000).toFixed(1)} s pinched per carry, typical`],
+        ['By square', d.length ? d.map((x) => `${x.spot} ${x.size}px: ${x.errPx}px, ${(x.ms / 1000).toFixed(1)}s${x.slips ? ', ' + x.slips + ' slip' : ''}`).join(' · ') : '–'],
+      ];
+      const tune = carryTune(h);
+      rows.push(['Tracking', tune.changes && tune.changes.length ? (tune.reverted ? 'your ' : 'tuned for your ') + h.toLowerCase() + ' hand: ' + tune.changes.join(' · ') + (tune.reverted ? '' : '. If the next round is clearly worse, it’s undone by itself.') : tune.note || '–']);
+      C.tune = tune;
+      $('carryUndo').hidden = !tune.undo;
+      $('carrySum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+      $('carryEnd').hidden = false;
+      $('carryHint').hidden = false;
     }
     function endGame() {
       step = 'gameover';
@@ -2866,9 +3228,9 @@
     // on the end card your hand works the buttons: move onto one and pinch, the same deliberate press as everywhere else
     function overFrame(f, t) {
       const o = G.over;
-      if (!o || $('gameEnd').hidden) return;
-      const btns = ['gameAgain', 'gameUndo', 'replayBtn2', 'gameBack'].map((id) => $(id)).filter((b) => !b.hidden),
-        fp = FLD.step(f, btns.map(rectItem), t, curSnap, curLens);
+      if (!o || ($('gameEnd').hidden && $('carryEnd').hidden)) return;
+      const btns = (o.btns || ['gameAgain', 'gameUndo', 'replayBtn2', 'gameBack']).map((id) => $(id)).filter((b) => !b.hidden),
+        fp = FLD.step(f, btns.map(rectItem), t, curSnap, curHold);
       showCur(fp.x, fp.y);
       const hot = fp.cap;
       btns.forEach((b) => b.classList.toggle('hot', b === hot));
@@ -2945,7 +3307,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.30',
+        app: 'v0.31',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -3154,7 +3516,7 @@
       }
       e.target.value = '';
     };
-    ['replayBtn', 'replayBtn2', 'replayBtn3'].forEach((id) => ($(id).onclick = () => showReplay()));
+    ['replayBtn', 'replayBtn2', 'replayBtn3', 'replayBtn4'].forEach((id) => ($(id).onclick = () => showReplay()));
     window.addEventListener('resize', () => RP && !$('replay').hidden && rpDraw());
 
     // ---- camera and tracking
@@ -3278,10 +3640,10 @@
       sideHint = false;
       let f = feat(L, t, W);
       const c = $('cur');
-      if (step === 'game' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
+      if (step === 'game' || step === 'carry' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
       recFrame(t, L, f, label, REC.nHands || 1, false);
       dodge(f, t);
-      const ok = step === 'ask' || step === 'done' || step === 'game' || step === 'gameover' || checkHand(label, t);
+      const ok = step === 'ask' || step === 'done' || step === 'game' || step === 'carry' || step === 'gameover' || checkHand(label, t);
       c.hidden = false;
       c.style.left = f.x + 'px';
       c.style.top = f.y + 'px';
@@ -3295,6 +3657,7 @@
       else if (step === 'fast' && S.el) fastFrame(f, t);
       else if (step === 'ask') askFrame(f, t);
       else if (step === 'game') gameFrame(f, t, label);
+      else if (step === 'carry') carryFrame(f, t, label);
       else if (step === 'gameover') overFrame(f, t);
     }
     // ---- an imaginary vertical axis down the middle of you. In the mirrored view (as you see yourself) your right hand works
@@ -3482,6 +3845,29 @@
       startGame();
     };
     $('gameAgain').onclick = () => startGame();
+    $('carry').onclick = async () => {
+      if (!(await startCamera($('introMsg')))) return;
+      startCarry();
+    };
+    $('carry2').onclick = async () => {
+      if (!(await startCamera($('doneMsg')))) return;
+      startCarry();
+    };
+    $('carryAgain').onclick = () => startCarry();
+    $('carryUndo').onclick = () => {
+      if (C && C.tune && C.tune.undo) C.tune.undo();
+      $('carryUndo').hidden = true;
+      const dd = [...$('carrySum').querySelectorAll('dd')].pop();
+      if (dd) dd.textContent = 'Tuning undone: back to the settings from before this round.';
+    };
+    $('carryBack').onclick = () => {
+      $('carryEnd').hidden = true;
+      if (step === 'gameover') step = null;
+      $('cur').hidden = true;
+      $('camCtl').hidden = true;
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      $(localStorage.getItem(KEY) ? 'done' : 'intro').hidden = false;
+    };
     $('gameUndo').onclick = () => {
       if (G.tune && G.tune.undo) G.tune.undo();
       $('gameUndo').hidden = true;
@@ -3565,6 +3951,10 @@
     window.trainGameFrame = gameFrame;
     window.trainGameState = () => G;
     window.trainGameEnd = endGame;
+    window.trainCarry = startCarry;
+    window.trainCarryFrame = carryFrame;
+    window.trainCarryState = () => C;
+    window.trainCarryEnd = endCarry;
     window.trainGameTune = gameTune;
     window.trainOverFrame = overFrame;
     window.trainBallistic = ballistic;
