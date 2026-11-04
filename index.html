@@ -1010,7 +1010,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.42, 4 Nov 2026">v0.42</div>
+<div id="ver" title="Hand control training, version 0.43, 4 Nov 2026">v0.43</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -1031,7 +1031,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.42 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.43 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -3999,6 +3999,13 @@
     window.addEventListener('hashchange', () => location.hash === '#compare' && showCompare());
     let cTimes = [];
     document.addEventListener('keydown', (e) => {
+      if ((e.code === 'Space' || e.key === ' ') && step === 'fruit' && FG) {
+        e.preventDefault();
+        toggleFruitPause();
+        return;
+      }
+    });
+    document.addEventListener('keydown', (e) => {
       if (e.key !== 'c' && e.key !== 'C') return;
       if (step && step !== 'done' && step !== 'gameover') return;
       const n = performance.now();
@@ -5184,13 +5191,35 @@
       const cv = document.createElement('canvas');
       cv.id = 'fruitCv';
       document.body.appendChild(cv);
-      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1 };
+      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false };
       fruitSetup(HAND);
       step = 'fruit';
       S = {};
-      prompt('🍉 Swipe through the fruit', 'A quick swipe slices it, no pinch needed. Let the barrels pass. Rest your hand below the waist line to pause.');
+      // a tap target to pause (Space does the same); the fruit game does not pause when the hand rests, so you can drop
+      // your arm between swings without losing time
+      let pb = $('fruitPause');
+      if (!pb) {
+        pb = document.createElement('button');
+        pb.id = 'fruitPause';
+        pb.type = 'button';
+        pb.setAttribute('aria-label', 'Pause');
+        pb.style.cssText = 'position:fixed;left:max(12px,env(safe-area-inset-left,0px));top:max(52px,env(safe-area-inset-top,0px));z-index:8;width:48px;height:48px;border-radius:999px;border:1px solid var(--line);background:rgba(7,11,20,0.8);color:var(--fg);font-size:1.2rem;cursor:pointer';
+        pb.onclick = toggleFruitPause;
+        document.body.appendChild(pb);
+      }
+      pb.textContent = '⏸';
+      pb.hidden = false;
+      prompt('🍉 Swipe through the fruit', 'A quick swipe slices it, no pinch needed. Let the barrels pass. Press Space or tap ⏸ to pause.');
       fruitHud();
       requestAnimationFrame(fruitTick);
+    }
+    function toggleFruitPause() {
+      if (!FG || step !== 'fruit') return;
+      FG.spacePaused = !FG.spacePaused;
+      const pb = $('fruitPause');
+      if (pb) pb.textContent = FG.spacePaused ? '▶' : '⏸';
+      if (FG.spacePaused) prompt('⏸ Paused', 'Press Space or tap ▶ to carry on.');
+      else $('prompt').hidden = true;
     }
     function fruitHud() {
       $('gScore').textContent = FG.score;
@@ -5198,8 +5227,10 @@
       $('gCombo').textContent = FG.sliced;
       $('gBest').textContent = FG.barrelsHit;
     }
-    function fruitPaused(now) {
-      return restShown || !FG.lastHand || now - FG.lastHand > 400;
+    function fruitPaused() {
+      // the fruit game pauses only on Space / the ⏸ button — not when the hand rests, so you can slash in and out and
+      // drop your arm between swings without stopping the clock
+      return !!(FG && FG.spacePaused);
     }
     // the warm-up before a round: swipe across a band through the middle of the screen three times slowly, three times at
     // a comfortable speed and three times as fast as you can. The median top speed of each level is kept for the hand.
@@ -5260,7 +5291,7 @@
       FG.grace = true; // the tail of the last warm-up swipe is not a slice
       fruitSetup(FG.hand || HAND);
       FG.last = performance.now();
-      prompt('🍉 Swipe through the fruit', `A swipe needs ${FG.thr} px/s now. Let the barrels pass. Rest your hand below the waist line to pause.`);
+      prompt('🍉 Swipe through the fruit', `A swipe needs ${FG.thr} px/s now. Let the barrels pass. Press Space or tap ⏸ to pause.`);
       clearTimeout(FG.pt);
       FG.pt = setTimeout(() => step === 'fruit' && ($('prompt').hidden = true), 2500);
     }
@@ -5375,6 +5406,17 @@
       }
       x.fillStyle = 'rgba(7,11,20,0.55)';
       x.fillRect(0, 0, innerWidth, innerHeight);
+      if (FG.spacePaused) {
+        x.fillStyle = 'rgba(7,11,20,0.6)';
+        x.fillRect(0, 0, innerWidth, innerHeight);
+        x.fillStyle = '#fff';
+        x.textAlign = 'center';
+        x.font = '600 22px var(--mono, monospace)';
+        x.fillText('⏸ Paused', innerWidth / 2, innerHeight / 2 - 14);
+        x.font = '14px var(--mono, monospace)';
+        x.fillStyle = 'rgba(255,255,255,0.75)';
+        x.fillText('Press Space or tap ▶ to carry on', innerWidth / 2, innerHeight / 2 + 16);
+      }
       if (FG.warm) fruitWarmDraw(x);
       // a sliced barrel: a brown flash fading over 0.4 s
       const fl = FG.flash ? clamp(1 - (now - FG.flash) / 400, 0, 1) : 0;
@@ -5639,6 +5681,7 @@
       if (FG.swipe) fruitEndSwipe(FG.prev ? FG.prev.t : 0);
       if (FG.post) fruitClosePost();
       if (FG.cv) FG.cv.remove();
+      if ($('fruitPause')) $('fruitPause').remove();
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
@@ -5905,7 +5948,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.42',
+        app: 'v0.43',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
