@@ -63,6 +63,28 @@ def num(v, lo=0, hi=1e6):
     return round(float(v), 3)
 
 
+CAM_LIM = {'dArm': (0, 80), 'palmCm': (5, 15), 'sphereR': (15, 80)}
+
+
+def cam_numbers(hands):
+    """the camera models' calibration per hand: three numbers in sensible ranges, nothing else (no face data)"""
+    if not isinstance(hands, dict):
+        return None
+    out = {}
+    for h in ('Right', 'Left'):
+        q = hands.get(h)
+        cm = q.get('cam') if isinstance(q, dict) else None
+        if not isinstance(cm, dict):
+            continue
+        rec_ = {}
+        for n, (lo, hi) in CAM_LIM.items():
+            v = cm.get(n)
+            rec_[n] = round(float(v), 2) if isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi else None
+        if any(v is not None for v in rec_.values()):
+            out[h] = rec_
+    return out or None
+
+
 def game_rows(gs):
     """the shared game rounds: a short list of known numbers only. Anything malformed drops the whole list."""
     if not isinstance(gs, list) or len(gs) > 12:
@@ -75,6 +97,9 @@ def game_rows(gs):
         # which hand model the round used (a short id), and for adaptive rounds how often each was chosen
         mdl = g.get('model')
         o['model'] = mdl[:12] if isinstance(mdl, str) and mdl else None
+        # which camera model the round used (a short id)
+        mp = g.get('mapping')
+        o['mapping'] = mp[:8] if isinstance(mp, str) and mp else None
         ch = g.get('choices')
         o['choices'] = {str(k)[:12]: int(v) for k, v in list(ch.items())[:8] if isinstance(v, (int, float)) and 0 <= v <= 1e6} if isinstance(ch, dict) else None
         # which features were on this round (short ids), and how often each model and feature was in play (per episode)
@@ -127,6 +152,7 @@ rec = {
     'touch': bool(p.get('touch')),
     'when': str(p.get('when', ''))[:10],
     'games': game_rows(p.get('games')) if p.get('games') is not None else None,
+    'cams': cam_numbers(p.get('hands')),
 }
 os.makedirs('data', exist_ok=True)
 # the same issue twice (opened and labelled) counts once

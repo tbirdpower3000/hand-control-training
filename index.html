@@ -797,7 +797,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.34, 4 Nov 2026">v0.34</div>
+<div id="ver" title="Hand control training, version 0.35, 4 Nov 2026">v0.35</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -817,7 +817,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.34 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.35 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -971,7 +971,7 @@
   </p>
   <div class="warnbox">
     <b>What is sent, and where</b>
-    <span>Only the numbers below: measurements, your answers, your ratings, and a browser type. If the box is ticked, also your last game rounds (scores, counts and precision numbers). No video, pictures, names or email addresses.</span>
+    <span>Only the numbers below: measurements, your answers, your ratings, and a browser type. If the box is ticked, also your last game rounds (scores, counts and precision numbers). Also three camera calibration numbers per hand (hand-to-face distance, palm length, arm reach, in cm); nothing else about your face. No video, pictures, names or email addresses.</span>
     <span>It is posted as a <b>public issue</b> on the project's GitHub page under your GitHub account, so your GitHub username will be attached to it and anyone can read it. You need a GitHub account (13 or older), and you press the final Submit button on GitHub yourself.</span>
     <span>Students under 13, or anyone at a school, should check with a teacher or parent first. If you'd rather not, just go back: nothing is sent unless you submit the issue.</span>
   </div>
@@ -1606,8 +1606,252 @@
     }
     const timeFactor = (ms) => clamp(1.5 - ms / 4000, 0.5, 1);
     let CUR_SIDE = 'Right';
+
+    // ---- camera models: how the camera picture becomes a cursor position. `flat` is the reach box drawn in the picture,
+    // as before. The others take the eyes as the reference: the pupils are about 6.3 cm apart, so their gap in the picture
+    // says how far away the face is, and the hand is held a measured distance (dArm) in front of the face. `tri` moves the
+    // cursor by where the hand is relative to the point between the eyes, in centimetres, so leaning in or moving the chair
+    // doesn't move it; `tri9` adds a gentle curve fitted from the nine reach holds; `sphere` follows the arm's angle about
+    // the shoulder. Each is tried in turn in the games, like the hand models. Nothing about the face is kept but the numbers.
+    const CAM_HFOV = 63,
+      PUPIL_CM = 6.3;
+    const MAPPINGS = {
+      flat: { id: 'flat', label: 'flat box (as before)' },
+      tri: { id: 'tri', label: 'eye-anchored' },
+      tri9: { id: 'tri9', label: 'eye-anchored, nine-point fit' },
+      sphere: { id: 'sphere', label: 'arm angle about the shoulder' },
+    };
+    const MAPPING_IDS = Object.keys(MAPPINGS);
+    let MAPPING = 'flat',
+      CAM = null, // this hand's camera calibration from the Reach step; null until the hand is trained with v0.35 or later
+      FACE = null, // the eyes: midpoint (mirrored, share of the picture), pupil gap (px), picture size, last seen
+      PALMPX = null, // the palm's length in the picture (px), smoothed: the hand's depth when the face is out of view
+      LASTW = null;
+    const vidW = () => ($('vid') && $('vid').videoWidth) || 640,
+      vidH = () => ($('vid') && $('vid').videoHeight) || 480;
+    const focalPx = (Wv) => (0.5 * Wv) / Math.tan(((CAM_HFOV / 2) * Math.PI) / 180);
+    function setMapping(id) {
+      MAPPING = MAPPINGS[id] ? id : 'flat';
+    }
+    function faceUpdate(ex, ey, ipdPx, t, Wv, Hv) {
+      if (!(ipdPx > 2) || !isFinite(ex) || !isFinite(ey)) return;
+      if (!FACE || t - FACE.t > 1500) FACE = { ex, ey, ipd: ipdPx, t, Wv, Hv };
+      else {
+        const k = 1 - Math.exp(-Math.max(1, t - FACE.t) / 300);
+        FACE.ex += (ex - FACE.ex) * k;
+        FACE.ey += (ey - FACE.ey) * k;
+        FACE.ipd += (ipdPx - FACE.ipd) * k;
+        Object.assign(FACE, { t, Wv, Hv });
+      }
+    }
+    // one frame's geometry: the depths of the face and the hand (cm) and the pixel positions. The face's depth comes from
+    // the pupil gap; seen in the last 1.5 s it is used as is, for up to 10 s more the hand's depth comes from the palm's
+    // size instead, and after that it gives up (null: the flat box is used)
+    function camGeom(hx, hy, t, cal) {
+      if (!FACE || !cal) return null;
+      const Wv = FACE.Wv || vidW(),
+        Hv = FACE.Hv || vidH(),
+        f = focalPx(Wv),
+        age = t - FACE.t;
+      let Zf, Zh;
+      if (age < 1500) {
+        Zf = (f * PUPIL_CM) / FACE.ipd;
+        Zh = Zf - cal.dArm;
+      } else if (age < 10000 && PALMPX > 2) {
+        Zh = (f * cal.palmCm) / PALMPX;
+        Zf = Zh + cal.dArm;
+      } else return null;
+      if (!(Zh > 5)) return null;
+      return { X: hx * Wv, Y: hy * Hv, Xe: FACE.ex * Wv, Ye: FACE.ey * Hv, cx: Wv / 2, cy: Hv / 2, f, Zf, Zh };
+    }
+    // the hand relative to the point between the eyes, in cm (right and down are positive, as you see yourself)
+    const triAB = (g) => ({ a: ((g.X - g.cx) * g.Zh) / g.f - ((g.Xe - g.cx) * g.Zf) / g.f, b: ((g.Y - g.cy) * g.Zh) / g.f - ((g.Ye - g.cy) * g.Zf) / g.f });
+    // the shoulder, from the eyes by body proportions: to the side of the hand in use, below the eyes, a little behind
+    function shoulder3(g, side, Hcm) {
+      const s_ = side === 'Left' ? -1 : 1;
+      return { x: ((g.Xe - g.cx) * g.Zf) / g.f + s_ * 0.11 * Hcm, y: ((g.Ye - g.cy) * g.Zf) / g.f + 0.09 * Hcm, z: g.Zf + 5 };
+    }
+    // the arm's direction from the shoulder, in degrees: across (right +) and down (+)
+    function armAngles(P_, S_) {
+      const dx = P_.x - S_.x,
+        dy = P_.y - S_.y,
+        dz = P_.z - S_.z;
+      return { a: (Math.atan2(dx, -dz) * 180) / Math.PI, b: (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI };
+    }
+    // where the camera's ray through the hand meets the arm's sphere (the nearer side); null if it misses (the elbow is
+    // bent more than at calibration), and then the eye-anchored model is used for that frame
+    function sphereAB(g, cal, side) {
+      const S_ = shoulder3(g, side, cal.heightCm),
+        D = { x: (g.X - g.cx) / g.f, y: (g.Y - g.cy) / g.f, z: 1 },
+        A = D.x * D.x + D.y * D.y + 1,
+        B = -2 * (D.x * S_.x + D.y * S_.y + D.z * S_.z),
+        Cc = S_.x * S_.x + S_.y * S_.y + S_.z * S_.z - cal.sphereR * cal.sphereR,
+        disc = B * B - 4 * A * Cc;
+      if (disc < 0) return null;
+      const tt = (-B - Math.sqrt(disc)) / (2 * A);
+      if (!(tt > 0)) return null;
+      return armAngles({ x: D.x * tt, y: D.y * tt, z: tt }, S_);
+    }
+    // the box from the four corner holds (with the same 6% margin as the flat box)
+    function boxFrom(p) {
+      const x0 = (p[0].a + p[3].a) / 2,
+        x1 = (p[1].a + p[2].a) / 2,
+        y0 = (p[0].b + p[1].b) / 2,
+        y1 = (p[2].b + p[3].b) / 2;
+      if (!(x1 > x0 && y1 > y0)) return null;
+      return { a0: +(x0 - (x1 - x0) * 0.06).toFixed(3), as: +((x1 - x0) * 1.12).toFixed(3), b0: +(y0 - (y1 - y0) * 0.06).toFixed(3), bs: +((y1 - y0) * 1.12).toFixed(3) };
+    }
+    // where each of the nine holds should land on the screen, as a share of it (the corners match the box's margin)
+    const QT = (() => {
+      const m = 0.06 / 1.12;
+      return [[m, m], [1 - m, m], [1 - m, 1 - m], [m, 1 - m], [0.5, m], [1 - m, 0.5], [0.5, 1 - m], [m, 0.5], [0.5, 0.5]];
+    })();
+    const quadRow = (u, v) => [1, u, v, u * u, u * v, v * v],
+      dotv = (a, b) => a.reduce((s_, v, i) => s_ + v * b[i], 0);
+    // least squares with each column scaled to unit size and a whisker of ridge
+    function lsq(X, y) {
+      const p = X[0].length,
+        sc = Array.from({ length: p }, (_, j) => Math.sqrt(X.reduce((s_, r) => s_ + r[j] * r[j], 0) / X.length) || 1),
+        Xs = X.map((r) => r.map((v, j) => v / sc[j])),
+        A = Array.from({ length: p }, (_, i) => Array.from({ length: p }, (__, j) => Xs.reduce((s_, r) => s_ + r[i] * r[j], 0) + (i === j ? 1e-10 : 0))),
+        bb = Array.from({ length: p }, (_, i) => Xs.reduce((s_, r, k) => s_ + r[i] * y[k], 0)),
+        inv = Chooser.inv(A);
+      return inv.map((r, j) => r.reduce((s_, v, k) => s_ + v * bb[k], 0) / sc[j]);
+    }
+    // the nine-point fit: a quadratic per screen axis. It is used only if, leaving each hold out in turn, it predicts that
+    // hold better than the plain box does
+    function quadFit(uv, T) {
+      const n = Math.min(uv.length, T.length);
+      if (n < 8) return null;
+      const X = uv.slice(0, n).map(([u, v]) => quadRow(u, v)),
+        tu = T.slice(0, n).map((q) => q[0]),
+        tv = T.slice(0, n).map((q) => q[1]),
+        cu = lsq(X, tu),
+        cv = lsq(X, tv),
+        sw = innerWidth,
+        sh = innerHeight;
+      let loo = 0,
+        box = 0;
+      for (let i = 0; i < n; i++) {
+        const keep = (_, k) => k !== i,
+          Xi = X.filter(keep),
+          pu = dotv(X[i], lsq(Xi, tu.filter(keep))),
+          pv = dotv(X[i], lsq(Xi, tv.filter(keep)));
+        loo += ((pu - tu[i]) * sw) ** 2 + ((pv - tv[i]) * sh) ** 2;
+        box += ((uv[i][0] - tu[i]) * sw) ** 2 + ((uv[i][1] - tv[i]) * sh) ** 2;
+      }
+      loo = Math.sqrt(loo / n);
+      box = Math.sqrt(box / n);
+      const r6 = (v) => +v.toFixed(6);
+      return { cu: cu.map(r6), cv: cv.map(r6), loo: Math.round(loo), box: Math.round(box), ok: loo < box };
+    }
+    // the calibration, from the Reach step's holds (each: the hand and the eyes, as medians over the hold)
+    function camCalibrate(holds, side) {
+      if (!holds || holds.length < 4 || holds.some((h) => !h || !(h.ipd > 2) || !(h.palmPx > 2))) return null;
+      const f = focalPx(holds[0].Wv);
+      let heightCm = 170;
+      try {
+        const v = +localStorage.getItem('atlasHeightCm');
+        if (v >= 100 && v <= 230) heightCm = v;
+      } catch (e) {}
+      const wc = holds.map((h) => h.palmCmW).filter((v) => v >= 6 && v <= 14),
+        palmCm = +(wc.length >= 3 ? median(wc) : 0.058 * heightCm).toFixed(2),
+        dArm = +clamp(median(holds.map((h) => (f * PUPIL_CM) / h.ipd - (f * palmCm) / h.palmPx)), 0, 80).toFixed(1),
+        geo = holds.map((h) => {
+          const Zf = (f * PUPIL_CM) / h.ipd;
+          return { X: h.hx * h.Wv, Y: h.hy * h.Hv, Xe: h.ex * h.Wv, Ye: h.ey * h.Hv, cx: h.Wv / 2, cy: h.Hv / 2, f, Zf, Zh: Zf - dArm };
+        });
+      if (geo.some((g) => !(g.Zh > 5))) return null;
+      const ab = geo.map(triAB),
+        box = boxFrom(ab);
+      if (!box || box.as < 3 || box.bs < 3) return null;
+      const cal = { v: 1, dArm, palmCm, heightCm, reachCm: box, quad: null, sphereR: null, sphere: null };
+      if (holds.length >= 9) cal.quad = quadFit(ab.slice(0, 9).map((p) => [(p.a - box.a0) / box.as, (p.b - box.b0) / box.bs]), QT);
+      const S3 = geo.map((g) => shoulder3(g, side, heightCm)),
+        P3 = geo.map((g) => ({ x: ((g.X - g.cx) * g.Zh) / g.f, y: ((g.Y - g.cy) * g.Zh) / g.f, z: g.Zh })),
+        R_ = median(P3.map((p, i) => Math.hypot(p.x - S3[i].x, p.y - S3[i].y, p.z - S3[i].z)));
+      if (R_ >= 15 && R_ <= 80) {
+        cal.sphereR = +R_.toFixed(1);
+        const sb = boxFrom(geo.map((g, i) => sphereAB(g, cal, side) || armAngles(P3[i], S3[i])));
+        if (sb && sb.as > 3 && sb.bs > 3) cal.sphere = sb;
+      }
+      return cal;
+    }
+    // the cursor's place on the screen (as a share of it) under the camera model in play; null means "use the flat box"
+    function mapPoint(hx, hy, t) {
+      if (MAPPING === 'flat' || !CAM || !CAM.reachCm) return null;
+      const g = camGeom(hx, hy, t, CAM);
+      if (!g) return null;
+      if (MAPPING === 'sphere' && CAM.sphere && CAM.sphereR) {
+        const sa = sphereAB(g, CAM, CUR_SIDE);
+        if (sa) return { u: (sa.a - CAM.sphere.a0) / CAM.sphere.as, v: (sa.b - CAM.sphere.b0) / CAM.sphere.bs, used: 'sphere' };
+      }
+      const ab = triAB(g),
+        box = CAM.reachCm;
+      let u = (ab.a - box.a0) / box.as,
+        v = (ab.b - box.b0) / box.bs;
+      if (MAPPING === 'tri9' && CAM.quad && CAM.quad.ok) {
+        const q = quadRow(clamp(u, -0.2, 1.2), clamp(v, -0.2, 1.2));
+        return { u: dotv(q, CAM.quad.cu), v: dotv(q, CAM.quad.cv), used: 'tri9' };
+      }
+      return { u, v, used: 'tri' };
+    }
+    // which camera models this hand can play: all of them once its Reach step measured the eyes
+    function mappingsFor(q) {
+      const c = q && q.cam;
+      if (!c || !c.reachCm) return ['flat'];
+      const ids = ['flat', 'tri'];
+      if (c.quad && c.quad.ok) ids.push('tri9');
+      if (c.sphere && c.sphereR) ids.push('sphere');
+      return ids;
+    }
+    // which camera model a round plays: a locked choice, otherwise the one with the fewest rounds on this hand
+    function pickMapping(h) {
+      const q = profileHand(h);
+      if (q && q.mapping && MAPPINGS[q.mapping]) return { id: q.mapping, locked: true, uncal: false };
+      const ids = mappingsFor(q);
+      if (ids.length === 1) return { id: 'flat', locked: false, uncal: true };
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h),
+        n = Object.fromEntries(ids.map((id) => [id, rows.filter((x) => x.mapping === id).length])),
+        least = Math.min(...Object.values(n)),
+        cands = ids.filter((id) => n[id] === least);
+      return { id: cands[(Math.random() * cands.length) | 0], locked: false, uncal: false };
+    }
+    // neutral letters for the camera models, per hand, so the game's code gives nothing away
+    function mappingLetters(h) {
+      let m = {};
+      try {
+        m = JSON.parse(localStorage.getItem('mapLetters') || '{}');
+      } catch (e) {}
+      if (!m[h] || MAPPING_IDS.some((id) => !m[h][id])) {
+        const ls = ['W', 'X', 'Y', 'Z'].sort(() => Math.random() - 0.5);
+        m[h] = Object.fromEntries(MAPPING_IDS.map((id, i) => [id, ls[i]]));
+        try {
+          localStorage.setItem('mapLetters', JSON.stringify(m));
+        } catch (e) {}
+      }
+      return m[h];
+    }
+    const mappingTag = (h, id) => 'camera ' + (mappingLetters(h)[id] || '?');
+    // for the end card; a hand trained before v0.35 is told once that retraining unlocks the camera models
+    function camSummary(st, h) {
+      if (st.mappingUncal) {
+        let told = {};
+        try {
+          told = JSON.parse(localStorage.getItem('camUncalTold') || '{}');
+        } catch (e) {}
+        if (told[h]) return 'flat box';
+        told[h] = true;
+        try {
+          localStorage.setItem('camUncalTold', JSON.stringify(told));
+        } catch (e) {}
+        return 'flat box. Train this hand again to try the camera models: the Reach step now also measures where your eyes are.';
+      }
+      return `${mappingTag(h, st.mapping || 'flat')}${st.mappingLocked ? ' (locked)' : ' (on trial; the games compare the camera models in turn)'}`;
+    }
     function feat(L, t, W, side) {
       LASTL = L;
+      LASTW = W && W.length === 21 ? W : null;
       if (side === 'Left' || side === 'Right') CUR_SIDE = side;
       // a frame the bone-chain gate rejects: the last good frame is shown again, for at most three frames
       if (FON('chainGate') && FEAT_ST.lastOut && chainGlitch(L)) {
@@ -1653,6 +1897,9 @@
         gy = sy_ + (mo.lead[1] - sy_) * mo.fast,
         mx = 1 - gx;
       fx.minCut = fy.minCut = base;
+      const ppx = Math.hypot((L[0].x - L[9].x) * vidW(), (L[0].y - L[9].y) * vidH());
+      PALMPX = PALMPX ? PALMPX + (ppx - PALMPX) * 0.2 : ppx;
+      const mp = mapPoint(mx, gy, t);
       // the reach box maps to the screen with a soft landing at the edges instead of a hard stop, so the cursor eases into a
       // corner rather than slamming and jittering against it
       const soft = (u) => {
@@ -1675,8 +1922,9 @@
         fast: mo.fast,
         rx: clamp((1 - ax - reach.x0) / reach.xs, -0.2, 1.2) * innerWidth,
         ry: clamp((ay - reach.y0) / reach.ys, -0.2, 1.2) * innerHeight,
-        x: soft(clamp((mx - reach.x0) / reach.xs, -0.2, 1.2)) * innerWidth,
-        y: soft(clamp((gy - reach.y0) / reach.ys, -0.2, 1.2)) * innerHeight,
+        x: soft(clamp(mp ? mp.u : (mx - reach.x0) / reach.xs, -0.2, 1.2)) * innerWidth,
+        y: soft(clamp(mp ? mp.v : (gy - reach.y0) / reach.ys, -0.2, 1.2)) * innerHeight,
+        map: mp ? mp.used : 'flat',
       });
     }
 
@@ -1798,36 +2046,56 @@
       ['bottom right', 0.88, 0.84],
       ['bottom left', 0.12, 0.84],
     ];
+    // after the four corners, five more holds (the edges' middles and the middle) for the camera models' fit; only the
+    // corners get a question
+    const REACH_PTS = [...CORNERS, ['top middle', 0.5, 0.16], ['right middle', 0.88, 0.5], ['bottom middle', 0.5, 0.84], ['left middle', 0.12, 0.5], ['middle', 0.5, 0.5]];
     function startReach() {
       step = 'reach';
       mark('reach');
       clearTargets();
       reach = Object.assign({}, BASE_REACH_NOW);
-      S = { i: 0, pts: [], hold: [], el: null, ms: [] };
+      S = { i: 0, pts: [], hold: [], el: null, ms: [], holds: [], camHold: [] };
       R.corners = [];
+      R.cam = null;
+      setMapping('flat');
       nextCorner();
     }
     function nextCorner() {
-      const [name, fxp, fyp] = CORNERS[S.i];
-      // the corners already done stay on screen, ticked (the question in between clears the screen)
-      for (let j = 0; j < S.i; j++) if (!document.querySelector(`.corner[data-j="${j}"]`)) tgt('corner got', CORNERS[j][1] * innerWidth, CORNERS[j][2] * innerHeight, '✓').dataset.j = j;
+      const [name, fxp, fyp] = REACH_PTS[S.i];
+      // the holds already done stay on screen, ticked (the question in between clears the screen)
+      for (let j = 0; j < S.i; j++) if (!document.querySelector(`.corner[data-j="${j}"]`)) tgt('corner got', REACH_PTS[j][1] * innerWidth, REACH_PTS[j][2] * innerHeight, '✓').dataset.j = j;
       S.el = tgt('corner', fxp * innerWidth, fyp * innerHeight, S.i + 1);
       S.el.dataset.j = S.i;
       S.hold = [];
       S.wait = false;
       S.cT0 = performance.now();
-      prompt(`${handWord()}: move it, open, to the <b>${name}</b> of where it's comfortable, and hold it there`, 'Stretch only as far as feels easy. The cursor may not reach the circle yet: that is what this step fixes.');
+      S.camHold = [];
+      if (S.i < CORNERS.length) prompt(`${handWord()}: move it, open, to the <b>${name}</b> of where it's comfortable, and hold it there`, 'Stretch only as far as feels easy. The cursor may not reach the circle yet: that is what this step fixes.');
+      else prompt(`${handWord()}: now the <b>${name}</b> of that same area, and hold it there`, `${S.i - CORNERS.length + 1} of ${REACH_PTS.length - CORNERS.length} short holds, no questions: they let the camera models fit your reach.`);
     }
     function reachFrame(f, t) {
       if (f.pinch || S.wait) return; // S.wait: this corner is done and its question is coming up
       S.hold.push([t, f.mx, f.my]);
       while (S.hold.length && t - S.hold[0][0] > 1200) S.hold.shift();
+      // the camera models' numbers for this frame: the palm's size, the eyes (if seen just now) and the picture's size
+      if (LASTL) {
+        const Wv = vidW(),
+          Hv = vidH(),
+          L = LASTL,
+          fresh = FACE && t - FACE.t < 500;
+        S.camHold.push([t, Math.hypot((L[0].x - L[9].x) * Wv, (L[0].y - L[9].y) * Hv), LASTW ? 100 * d3(LASTW[0], LASTW[9]) : null, fresh ? FACE.ipd : null, fresh ? FACE.ex : null, fresh ? FACE.ey : null, Wv, Hv]);
+        while (S.camHold.length && t - S.camHold[0][0] > 1200) S.camHold.shift();
+      }
       if (S.hold.length < 12 || t - S.hold[0][0] < 1100) return;
       const xs = S.hold.map((h) => h[1]),
         ys = S.hold.map((h) => h[2]);
       const spread = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
       if (spread > 0.03) return; // still moving
       S.pts.push([median(xs), median(ys)]);
+      const ch = S.camHold,
+        col = (k) => ch.map((r) => r[k]).filter((v) => v != null && isFinite(v)),
+        medOr = (k) => (col(k).length >= ch.length / 2 ? median(col(k)) : null);
+      S.holds.push(ch.length ? { hx: median(xs), hy: median(ys), palmPx: medOr(1), palmCmW: medOr(2), ipd: medOr(3), ex: medOr(4), ey: medOr(5), Wv: ch[0][6], Hv: ch[0][7] } : null);
       S.ms = S.ms || [];
       S.ms.push(t - (S.cT0 || t));
       S.el.classList.add('got');
@@ -1835,7 +2103,8 @@
       S.hold = [];
       S.i++;
       // a question for each corner: how easy was reaching that one (it shows which reaches are hard, e.g. up high)
-      return setTimeout(() => check('c' + (S.i - 1)), 350);
+      if (S.i <= CORNERS.length) return setTimeout(() => check('c' + (S.i - 1)), 350);
+      return setTimeout(() => step === 'reach' && (S.i < REACH_PTS.length ? nextCorner() : reachDone()), 350);
     }
     function reachDone() {
       // map the comfortable box (with a small margin) onto the whole screen
@@ -1861,6 +2130,8 @@
         WAIST = clamp(y1 + 0.07, 0.6, 0.97); // just below your lowest comfortable reach
         R.waist = +WAIST.toFixed(3);
       }
+      // the camera models' calibration (null when the eyes weren't seen at every hold)
+      R.cam = camCalibrate(S.holds, HAND);
       // the step's rating is the average of the four corner answers (or what was measured, if none were answered)
       const cs = R.corners || [],
         rated = cs.filter((c) => !c.auto);
@@ -2239,7 +2510,7 @@
         (R.corners = R.corners || [])[i] = { corner: CORNERS[i][0], score, auto, ms: Math.round((S.ms || [])[i] || 0) };
         if (!auto) SND.rate(score);
         step = 'reach';
-        if (S.i < CORNERS.length) return nextCorner();
+        if (S.i < REACH_PTS.length) return nextCorner();
         return reachDone();
       }
       (R.ratings = R.ratings || {})[which] = { score, auto, effort: effort ?? null };
@@ -2705,6 +2976,20 @@
         rows.push([`Model ${name}: carry placement (px)`, (a, g, c) => avg(c.filter((x) => x.model === id), (x) => x.errPx), 'i']);
         rows.push([`Model ${name}: carry slips per round`, (a, g, c) => avg(c.filter((x) => x.model === id), (x) => x.slips), '1']);
       }
+      const CORNER_SPOTS = CORNERS.map((c) => c[0]),
+        spotErr = (cs, corner) => {
+          const v = cs.flatMap((x) => (x.bySpot || []).filter((sp) => (corner ? CORNER_SPOTS.includes(sp.spot) : sp.spot === 'middle')).map((sp) => sp.errPx)).filter((e) => e != null && isFinite(e));
+          return v.length ? v.reduce((p, q) => p + q, 0) / v.length : null;
+        };
+      for (const id of MAPPING_IDS) {
+        const lab = MAPPINGS[id].label,
+          of = (xs) => xs.filter((x) => x.mapping === id);
+        rows.push([`Camera ${lab}: rounds`, (a, g, c) => of([...g, ...c]).length, 'n']);
+        rows.push([`Camera ${lab}: pop throughput (bits/s)`, (a, g) => avg(of(g), (x) => x.tp), 'x']);
+        rows.push([`Camera ${lab}: carry placement, corners (px)`, (a, g, c) => spotErr(of(c), true), 'i']);
+        rows.push([`Camera ${lab}: carry placement, middle (px)`, (a, g, c) => spotErr(of(c), false), 'i']);
+        rows.push([`Camera ${lab}: carry slips per round`, (a, g, c) => avg(of(c), (x) => x.slips), '1']);
+      }
       const tbl = rows
         .map(([label, f, kind]) => {
           const r = f(by.Right, gm.Right, cr.Right),
@@ -2785,7 +3070,8 @@
           metric = (x) => (kind === 'game' ? x.tp : x.score != null ? (x.score * 60) / CARRY_LEN : null),
           use = rs.filter((x) => metric(x) != null && isFinite(metric(x))),
           modelCols = [...MODEL_IDS.slice(1), 'adaptive'],
-          X = use.map((x) => [1, ...FEATURE_IDS.map((id) => (x.features.includes(id) ? 1 : 0)), ...modelCols.map((m) => (x.model === m ? 1 : 0))]),
+          mapCols = MAPPING_IDS.slice(1).filter((m) => use.some((x) => x.mapping === m)),
+          X = use.map((x) => [1, ...FEATURE_IDS.map((id) => (x.features.includes(id) ? 1 : 0)), ...modelCols.map((m) => (x.model === m ? 1 : 0)), ...mapCols.map((m) => (x.mapping === m ? 1 : 0))]),
           y = use.map(metric),
           fit = X.length ? olsFit(X, y) : null,
           feats = {};
@@ -2801,7 +3087,19 @@
           else if (tv != null && (tv <= -2 || (on >= 12 && Math.abs(tv) < 0.5))) verdict = 'remove';
           feats[id] = { on, off, effect: effect != null ? +effect.toFixed(3) : null, se: se != null ? +se.toFixed(3) : null, t: tv != null ? +tv.toFixed(2) : null, verdict, n };
         });
-        out[kind] = { n: use.length, fitted: !!fit, feats, unit: kind === 'game' ? 'bits/s' : 'points/min' };
+        const maps = {},
+          off0 = 1 + FEATURE_IDS.length + modelCols.length;
+        mapCols.forEach((m, i) => {
+          const on = use.filter((x) => x.mapping === m).length,
+            effect = fit ? fit.beta[off0 + i] : null,
+            se = fit ? fit.se[off0 + i] : null,
+            tv = effect != null && se > 1e-9 ? effect / se : null;
+          let verdict = 'keep trialling';
+          if (tv != null && tv >= 2 && effect > 0) verdict = 'implement in the atlas';
+          else if (tv != null && (tv <= -2 || (on >= 12 && Math.abs(tv) < 0.5))) verdict = 'remove';
+          maps[m] = { on, effect: effect != null ? +effect.toFixed(3) : null, se: se != null ? +se.toFixed(3) : null, t: tv != null ? +tv.toFixed(2) : null, verdict, n: use.length };
+        });
+        out[kind] = { n: use.length, fitted: !!fit, feats, maps, unit: kind === 'game' ? 'bits/s' : 'points/min' };
       }
       return out;
     }
@@ -2831,6 +3129,13 @@
         if (g.verdict === 'implement in the atlas') suggest.push(`${FEATURES[id].label}: +${g.effect} ${fx_.game.unit} in the pop game (t = ${g.t}, ${g.n} rounds)`);
         if (c.verdict === 'implement in the atlas') suggest.push(`${FEATURES[id].label}: +${c.effect} ${fx_.carry.unit} in the carry game (t = ${c.t}, ${c.n} rounds)`);
         if (g.verdict === 'remove' || c.verdict === 'remove') dead.push(`${FEATURES[id].label} (no positive effect after ${Math.max(g.on, c.on)} rounds with it on)`);
+      }
+      for (const m of MAPPING_IDS.slice(1)) {
+        const g = fx_.game.maps[m],
+          c = fx_.carry.maps[m];
+        if (g && g.verdict === 'implement in the atlas') suggest.push(`camera model ${MAPPINGS[m].label}: +${g.effect} ${fx_.game.unit} over the flat box in the pop game (t = ${g.t}, ${g.on} rounds)`);
+        if (c && c.verdict === 'implement in the atlas') suggest.push(`camera model ${MAPPINGS[m].label}: +${c.effect} ${fx_.carry.unit} over the flat box in the carry game (t = ${c.t}, ${c.on} rounds)`);
+        if ((g && g.verdict === 'remove') || (c && c.verdict === 'remove')) dead.push(`camera model ${MAPPINGS[m].label} (no gain over the flat box after ${Math.max(g ? g.on : 0, c ? c.on : 0)} rounds)`);
       }
       for (const id of unchosenModels(h)) dead.push(`model ${HAND_MODELS[id].label} (never chosen by the adaptive chooser in its last 20 episodes)`);
       const cell = (f) => (f.effect == null ? '–' : `${f.effect > 0 ? '+' : ''}${f.effect} ± ${f.se}`),
@@ -2917,6 +3222,7 @@
         kW: R.kW || null,
         pinchMap: R.pinchMap || null,
         reach: R.reach || null,
+        cam: R.cam || null,
         ratings: R.ratings || null,
         corners: R.corners || null,
         measured: {
@@ -3034,7 +3340,7 @@
         reach: p.reach ? { xs: +p.reach.xs.toFixed(3), ys: +p.reach.ys.toFixed(3) } : null,
         hands: p.hands
           ? Object.fromEntries(
-              Object.entries(p.hands).map(([h, q]) => [h, { k: q.k, reach: q.reach ? { xs: +q.reach.xs.toFixed(3), ys: +q.reach.ys.toFixed(3) } : null, ratings: q.ratings, measured: q.measured }]),
+              Object.entries(p.hands).map(([h, q]) => [h, { k: q.k, reach: q.reach ? { xs: +q.reach.xs.toFixed(3), ys: +q.reach.ys.toFixed(3) } : null, ratings: q.ratings, measured: q.measured, cam: q.cam ? { dArm: q.cam.dArm ?? null, palmCm: q.cam.palmCm ?? null, sphereR: q.cam.sphereR ?? null } : null }]),
             )
           : null,
         answers: p.answers,
@@ -3052,7 +3358,7 @@
     function gameRows(n) {
       const rows = history().filter((x) => x.kind === 'game' || x.kind === 'carry').slice(-n);
       return rows.map((x) => {
-        const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null, features: Array.isArray(x.features) ? x.features.slice(0, 12).map((id) => String(id).slice(0, 12)) : [], use: x.use && typeof x.use === 'object' ? Object.fromEntries(Object.entries(x.use).slice(0, 16).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
+        const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, mapping: x.mapping ? String(x.mapping).slice(0, 8) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null, features: Array.isArray(x.features) ? x.features.slice(0, 12).map((id) => String(id).slice(0, 12)) : [], use: x.use && typeof x.use === 'object' ? Object.fromEntries(Object.entries(x.use).slice(0, 16).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
         if (x.kind === 'game') {
           for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'tp']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
@@ -3134,6 +3440,7 @@
       curHold = q && q.k && q.k.lens ? q.k.lens : holdFor(q && q.measured && q.measured.wobble);
       FEAT_ST.dz = Math.max(12, 2.5 * ((q && q.measured && q.measured.wobble) || 0));
       FLD.reset();
+      CAM = q && q.cam && q.cam.reachCm ? q.cam : null;
       if (q && q.k) {
         reach = Object.assign({}, q.reach || BASE_REACH_NOW);
         fx.minCut = fy.minCut = q.k.minCut;
@@ -3554,6 +3861,11 @@
       st.episodes = [];
       st.epi = null;
       st.use = {};
+      const mp_ = pickMapping(h);
+      st.mapping = mp_.id;
+      st.mappingLocked = mp_.locked;
+      st.mappingUncal = mp_.uncal;
+      setMapping(mp_.id);
       const fp_ = pickFeatures(h);
       st.features = fp_.ids;
       st.featuresLocked = fp_.locked;
@@ -3565,12 +3877,13 @@
         st.chooser = null;
         setModel(pick.id, t);
       }
-      $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '') + ' · ' + featureCode(h, st.features) + (fp_.locked ? ' 🔒' : '');
+      $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '') + ' · ' + featureCode(h, st.features) + (fp_.locked ? ' 🔒' : '') + ' · ' + mappingTag(h, mp_.id) + (mp_.locked ? ' 🔒' : '');
     }
     // the round is over: the features go back off (the training steps and the end cards run plain), and the use counts
     // are kept in the profile
     function endTrialRound(st, h) {
       setFeatures([]);
+      setMapping('flat');
       try {
         const p = JSON.parse(localStorage.getItem(KEY) || 'null');
         if (!p || !p.hands || !p.hands[h]) return;
@@ -3933,7 +4246,7 @@
       const hist = history();
       saveChooser(C, h);
       endTrialRound(C, h);
-      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null });
+      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null, mapping: C.mapping || null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -3941,6 +4254,7 @@
         ['Score', `<b style="color:var(--gold);font-size:1.3rem">${C.score}</b>`],
         ['Hand', `${h.toLowerCase()}${C.profiled ? ', with your trained settings' : ', default settings'}`],
         ['Hand model', modelSummary(C, h)],
+        ['Camera model', camSummary(C, h)],
         ['Delivered', `${d.length} of ${C.i + (C.zone ? 1 : 0)} squares${d.length >= CARRY_SPOTS.length ? ' (all four corners and the middle' + (d.length >= 2 * CARRY_SPOTS.length ? ', twice' : '') + ')' : ''}`],
         ['Slips', `${C.slips} (the disc dropped outside a square)${C.saves ? ` · ${C.saves} flickers of the pinch held through` : ''}`],
         ['Placement', err == null ? '–' : `${Math.round(err)} px from the centre, typical`],
@@ -3983,7 +4297,7 @@
       const hist = history();
       saveChooser(G, h);
       endTrialRound(G, h);
-      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null });
+      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -3991,6 +4305,7 @@
         ['Score', `<b style="color:var(--gold);font-size:1.3rem">${G.score}</b>${isBest ? ' 🏆 new best!' : prev ? ` (best ${prev})` : ''}`],
         ['Hand', `${h.toLowerCase()}${G.profiled ? ', with your trained settings' : ', default settings (train this hand for a better fit)'}`],
         ['Hand model', modelSummary(G, h)],
+        ['Camera model', camSummary(G, h)],
         ['Popped', `${G.pops} · ${G.fell} got away`],
         ['Pinch accuracy', acc == null ? '–' : `${Math.round(acc * 100)}% (${G.missPress} pinches beside a bubble)`],
         ['Time to pop', react == null ? '–' : `${(react / 1000).toFixed(1)} s typical, from the top of the screen`],
@@ -4091,7 +4406,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.34',
+        app: 'v0.35',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -4305,7 +4620,9 @@
 
     // ---- camera and tracking
     let landmarker = null,
-      lastT = -1;
+      lastT = -1,
+      faceLm = null, // the face, only for the eyes' position and the pupil gap (the camera models); optional
+      faceN = 0;
     // the answers on the first card: a starting point the exercises then refine
     const pick = (n) => (document.querySelector(`input[name=${n}]:checked`) || {}).value;
     const PRIOR = {
@@ -4504,8 +4821,19 @@
       const v = $('vid');
       if (!landmarker || v.readyState < 2 || v.currentTime === lastT) return;
       lastT = v.currentTime;
-      const now = performance.now(),
-        r = landmarker.detectForVideo(v, now),
+      const now = performance.now();
+      // the eyes, every second frame: the two iris centres (points 468 and 473), mirrored as you see yourself
+      if (faceLm && (faceN = (faceN + 1) % 2) === 0) {
+        try {
+          const F = (faceLm.detectForVideo(v, now + 0.5).faceLandmarks || [])[0];
+          if (F && F.length > 473) {
+            const Wv = v.videoWidth || 640,
+              Hv = v.videoHeight || 480;
+            faceUpdate(1 - (F[468].x + F[473].x) / 2, (F[468].y + F[473].y) / 2, Math.hypot((F[468].x - F[473].x) * Wv, (F[468].y - F[473].y) * Hv), now, Wv, Hv);
+          }
+        } catch (e) {}
+      }
+      const r = landmarker.detectForVideo(v, now),
         all = (r.landmarks || []).map((L, i) => ({ L, W: (r.worldLandmarks || [])[i], label: (((r.handedness || r.handednesses || [])[i] || [])[0] || {}).categoryName }));
       // the hand in use: of the hands in view, the one on the trained hand's side of your midline, preferring the one the
       // tracker also names as that hand; the other hand is ignored completely
@@ -4595,13 +4923,21 @@
       $('camCtl').hidden = false;
       m.textContent = 'Loading hand tracking…';
       try {
-        const { FilesetResolver, HandLandmarker } = await import(MP + '/vision_bundle.mjs');
+        const { FilesetResolver, HandLandmarker, FaceLandmarker } = await import(MP + '/vision_bundle.mjs');
         const fs = await FilesetResolver.forVisionTasks(MP + '/wasm');
         landmarker = await HandLandmarker.createFromOptions(fs, {
           baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
           runningMode: 'VIDEO',
           numHands: 2, // both are found so the one not in use can be ignored
         });
+        if (!faceLm && FaceLandmarker)
+          FaceLandmarker.createFromOptions(fs, {
+            baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate: 'GPU' },
+            runningMode: 'VIDEO',
+            numFaces: 1,
+          })
+            .then((fl) => (faceLm = fl))
+            .catch(() => (faceLm = null));
       } catch (e) {
         m.innerHTML = '<span class="err">Hand tracking couldn’t load. It needs an internet connection the first time.</span>';
         return false;
@@ -4751,6 +5087,17 @@
     window.trainCtx = ctxFeatures;
     window.trainLock = lockModel;
     window.trainFeat = feat;
+    window.trainFace = (ex, ey, ipdNorm, t) => faceUpdate(ex, ey, ipdNorm * vidW(), t, vidW(), vidH());
+    window.trainCamCalibrate = camCalibrate;
+    window.trainQuadFit = quadFit;
+    window.trainQT = QT;
+    window.trainMapPoint = (hx, hy, t) => mapPoint(hx, hy, t);
+    window.trainSetMapping = setMapping;
+    window.trainMapping = () => MAPPING;
+    window.trainSetCam = (c) => (CAM = c);
+    window.trainCam = () => CAM;
+    window.trainPickMapping = pickMapping;
+    window.trainCamSummary = camSummary;
     window.trainGameRows = gameRows;
     window.trainCarryFrame = carryFrame;
     window.trainCarryState = () => C;
