@@ -1,4 +1,4 @@
-# Hand control training (v0.22)
+# Hand control training (v0.24)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -7,12 +7,16 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 ## What it does
 
 1. Asks which hand you use, how steady it is, how far you sit from the camera, and which cursor and sounds you want.
-2. **Reach:** you move your open hand to four comfortable corners, and the page maps that area to the whole screen.
+2. **Reach:** you move your open hand to four comfortable corners, and the page maps that area to the whole screen. After each corner it asks how easy that reach was (1–7), so hard reaches (for example up high) show up per corner.
 3. **Pinch:** open hand, then a firm pinch, three times, to set your own pinch threshold.
 4. **Hold still:** three seconds on a dot, to measure how much the cursor wobbles and set the smoothing.
 5. **Targets:** eight buttons to pinch, to measure overshoots, misses and time, which set how strongly buttons pull the cursor in.
 6. **Fast:** dart across the screen to a ring and stop on it; it measures peak speed, how far the smoothed cursor lags behind your hand, overshoot and time to settle, which tune how quickly the cursor follows fast moves.
 7. After each step it asks one question: overall, how easy was that, from 1 (very hard, a lot of effort) to 7 (easy, no effort). You pinch a number and confirm it, or let it carry on by itself from what it measured.
+
+**🎈 Pop the bubbles** is an optional 45-second game (on the first card and the summary): bubbles fall from the top and you pinch them. It uses the trained settings of the hand you play with, gets faster as you score, slows down after three get away in a row, and pauses while your hand rests below the waist line. Scores go to the private history only.
+
+**🎞 Replay** draws what happened in the last few minutes (targets, prompts, the cursor and its trail, presses, and the tracked hand points with the waist line) so a problem can be watched again. You can download the replay log and send it in, or open one. It holds no camera picture, stays in the tab until you reload, and is never sent anywhere by itself.
 
 The profile (a few numbers) is saved in your browser. The atlas, which lives on the same site, picks it up the next time you start hand control, and its 🎯 Adaptive aim keeps fine-tuning it as you go. You can also download the profile as a file and open it in the atlas with "Open a planet pack".
 
