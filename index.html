@@ -289,6 +289,15 @@
     padding: 6px 18px;
     white-space: nowrap;
   }
+  #gameEnd .row button {
+    min-height: 60px;
+    font-size: 1.05rem;
+    padding-inline: 20px;
+  }
+  #gameEnd .row button.hot {
+    outline: 3px solid var(--gold);
+    outline-offset: 2px;
+  }
   #gameHud b {
     color: var(--gold);
   }
@@ -699,7 +708,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.24, 3 Nov 2026">v0.24</div>
+<div id="ver" title="Hand control training, version 0.25, 3 Nov 2026">v0.25</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -719,7 +728,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.24 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.25 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -809,11 +818,13 @@
 <section class="card" id="gameEnd" hidden>
   <h2>🎈 Bubbles popped</h2>
   <dl id="gameSum"></dl>
-  <p class="muted">Kept in this browser only. The game uses your trained settings for the hand you play with, and pauses while your hand rests below the waist line.</p>
+  <p id="gameHint" hidden style="color:var(--gold);font-weight:600">✋ Hands work here too: move onto a button and pinch. Pinch 🎈 Play again for a new round.</p>
+  <p class="muted">Kept in this browser only. The game uses your trained settings for the hand you play with and fine-tunes them a little after each round (the atlas picks that up). It pauses while your hand rests below the waist line.</p>
   <div class="row">
     <button type="button" class="primary" id="gameAgain">🎈 Play again</button>
     <button type="button" id="gameBack">← Back</button>
     <button type="button" id="replayBtn2">🎞 Replay</button>
+    <button type="button" id="gameUndo" hidden>↶ Undo the tuning</button>
     <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">Go to the atlas</a>
   </div>
 </section>
@@ -2161,7 +2172,7 @@
       $('cur').hidden = false;
       $('gameHud').hidden = false;
       goFull();
-      G = { hand: null, bubbles: [], score: 0, pops: 0, fell: 0, missPress: 0, combo: 0, bestCombo: 0, streakFell: 0, level: 0, left: GAME_LEN, spawnIn: 0.6, last: performance.now(), lastHand: 0, react: [], wasPinch: true, openSince: 0, profiled: false };
+      G = { openPr: [], openW: [], closedPr: [], closedW: [], missD: [], drift: [], trail: [], minPr: 9, minW: 9, hand: null, bubbles: [], score: 0, pops: 0, fell: 0, missPress: 0, combo: 0, bestCombo: 0, streakFell: 0, level: 0, left: GAME_LEN, spawnIn: 0.6, last: performance.now(), lastHand: 0, react: [], wasPinch: true, openSince: 0, profiled: false };
       step = 'game';
       S = {}; // nothing for the camera window to dodge but the cursor
       prompt('🎈 Raise a hand and pinch the bubbles before they fall', 'Move onto a bubble, then pinch thumb to index finger. Rest your hand below the waist line to pause.');
@@ -2255,11 +2266,32 @@
           best = b;
         }
       });
+      // samples for tuning: the pinch ratio of an open hand while aiming at a bubble, the firmest point of each pinch, and
+      // how far the cursor slid in the 150 ms before a press (pinching drags the palm point)
+      G.trail.push([t, f.x, f.y]);
+      while (G.trail.length && t - G.trail[0][0] > 400) G.trail.shift();
+      if (!f.pinch && best && bd < 80 && t - G.openSince > 200) {
+        G.openPr.push(f.pr);
+        if (f.prW != null) G.openW.push(f.prW);
+      }
+      if (f.pinch) {
+        G.minPr = Math.min(G.minPr, f.pr);
+        if (f.prW != null) G.minW = Math.min(G.minW, f.prW);
+      } else if (G.wasPinch && G.minPr < 9) {
+        G.closedPr.push(G.minPr);
+        if (G.minW < 9) G.closedW.push(G.minW);
+        G.minPr = G.minW = 9;
+      }
       if (!f.pinch) G.openSince = G.openSince || t;
       const fresh = f.pinch && !G.wasPinch && G.openSince && t - G.openSince > 150;
+      if (fresh) {
+        const back = G.trail.find((q) => t - q[0] <= 150) || G.trail[0];
+        if (back) G.drift.push(Math.hypot(f.x - back[1], f.y - back[2]));
+      }
       if (fresh && !gamePaused(performance.now())) {
         if (best && bd < 14) popBubble(best, t);
         else if (best && bd < 120) {
+          G.missD.push(bd);
           G.missPress++;
           G.combo = 0;
           note(330, 0, 0.04, 0.15);
@@ -2293,6 +2325,105 @@
       setTimeout(() => fx_.remove(), 750);
       hud();
     }
+
+    // ---- the game tunes the tracking: after a round with enough presses, the saved settings of the hand that played are
+    // nudged a little toward what the round measured (the pinch thresholds, in the image and in 3D, and the pull onto
+    // buttons). Each change is a trial: if the next round with that hand is clearly worse (pinch accuracy down by more than
+    // 15%), the change is undone by itself. Only trained hands are tuned. The atlas picks the new settings up as usual.
+    function gameTune(h, acc, presses) {
+      let p = null;
+      try {
+        p = JSON.parse(localStorage.getItem(KEY) || 'null');
+      } catch (e) {}
+      const q = p && p.hands && p.hands[h];
+      if (!q || !q.k) return { note: 'Train this hand and the game will fine-tune its settings each round.' };
+      const out = { changes: [] };
+      const sameK = p.k && JSON.stringify(p.k) === JSON.stringify(q.k);
+      const T = q.gameTune;
+      // 1. judge the last trial
+      if (T && T.pending && presses >= 8 && acc != null) {
+        if (acc < T.acc * 0.85) {
+          q.k = T.before.k;
+          q.kW = T.before.kW;
+          out.changes.push(`undid the last change (accuracy ${Math.round(T.acc * 100)}% → ${Math.round(acc * 100)}%)`);
+          out.reverted = true;
+        }
+        T.pending = false;
+      }
+      if (out.reverted || presses < 8 || acc == null) {
+        if (presses < 8 && !out.reverted) out.note = 'Not enough pinches this round to tune anything (8 or more needed).';
+        q.gameTune = T || null;
+        if (sameK) p.k = q.k;
+        saveTune(p);
+        return out;
+      }
+      const before = { k: Object.assign({}, q.k), kW: q.kW ? Object.assign({}, q.kW) : null },
+        k = Object.assign({}, q.k),
+        mix = 0.3; // move 30% of the way to what this round measured
+      // 2. pinch thresholds from this round's open hand and firm pinches, by the training's rule
+      const thr = (oA, cA, lo, hi) => {
+        if (oA.length < 20 || cA.length < 5) return null;
+        const o = median(oA),
+          c = median(cA),
+          g = o - c;
+        if (g < 0.15) return null;
+        const on = clamp(c + 0.25 * g, lo[0], lo[1]);
+        return { on, off: clamp(Math.max(on + 0.12, c + 0.5 * g), hi[0], hi[1]) };
+      };
+      const im = thr(G.openPr, G.closedPr, [0.15, 0.45], [0.3, 0.7]);
+      if (im) {
+        const on = +(k.pOn + mix * (im.on - k.pOn)).toFixed(3),
+          off = +(k.pOff + mix * (im.off - k.pOff)).toFixed(3);
+        if (Math.abs(on - k.pOn) >= 0.005 || Math.abs(off - k.pOff) >= 0.005) {
+          out.changes.push(`pinch on ${k.pOn.toFixed(2)}→${on.toFixed(2)}, off ${k.pOff.toFixed(2)}→${off.toFixed(2)}`);
+          k.pOn = on;
+          k.pOff = Math.max(off, on + 0.1);
+        }
+      }
+      let kW = q.kW ? Object.assign({}, q.kW) : null;
+      const wd = kW && thr(G.openW, G.closedW, [0.1, 0.6], [0.2, 0.9]);
+      if (wd) {
+        const on = +(kW.pOn + mix * (wd.on - kW.pOn)).toFixed(3),
+          off = +(kW.pOff + mix * (wd.off - kW.pOff)).toFixed(3);
+        if (Math.abs(on - kW.pOn) >= 0.005) {
+          out.changes.push(`3D pinch on ${kW.pOn.toFixed(2)}→${on.toFixed(2)}`);
+          kW.pOn = on;
+          kW.pOff = Math.max(off, on + 0.08);
+        }
+      }
+      // 3. the pull onto buttons: pinches that just missed (within 60 px of a bubble) ask for more; a clean round, a little less
+      const near = G.missD.filter((d) => d < 60).length / presses;
+      if (near > 0.12) {
+        const ns = clamp(k.snap + Math.min(6, Math.round(near * 25)), 28, 72);
+        if (ns !== k.snap) out.changes.push(`button pull ${k.snap}→${ns} px (${Math.round(near * 100)}% of pinches just missed)`);
+        k.snap = ns;
+      } else if (near < 0.03 && acc > 0.9 && k.snap > 30) {
+        out.changes.push(`button pull ${k.snap}→${k.snap - 1} px (clean round)`);
+        k.snap -= 1;
+      }
+      if (!out.changes.length) {
+        out.note = 'Your settings already fit this round: nothing to change.';
+        return out;
+      }
+      q.k = k;
+      if (kW) q.kW = kW;
+      q.gameTune = { t: new Date().toISOString(), acc, pending: true, before, rounds: ((T && T.rounds) || 0) + 1 };
+      if (sameK) p.k = q.k;
+      saveTune(p);
+      out.undo = () => {
+        q.k = before.k;
+        q.kW = before.kW;
+        q.gameTune = Object.assign({}, q.gameTune, { pending: false, undone: true });
+        if (sameK) p.k = q.k;
+        saveTune(p);
+      };
+      return out;
+    }
+    function saveTune(p) {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(p));
+      } catch (e) {}
+    }
     function endGame() {
       step = 'gameover';
       G.bubbles.forEach((b) => b.el.remove());
@@ -2300,10 +2431,8 @@
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
-      $('cur').hidden = true;
-      $('camCtl').hidden = true;
-      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       SND.finish();
+      G.over = { t0: performance.now(), wasPinch: true, openSince: 0 };
       const h = G.hand || HAND,
         presses = G.pops + G.missPress,
         acc = presses ? G.pops / presses : null,
@@ -2330,12 +2459,39 @@
         ['Time to pop', react == null ? '–' : `${(react / 1000).toFixed(1)} s typical, from the top of the screen`],
         ['Best combo', G.bestCombo > 1 ? '×' + G.bestCombo : '–'],
         ['Top speed reached', `level ${G.level + 1} of 13`],
+        ['Cursor slide when pinching', G.drift.length ? `${Math.round(median(G.drift))} px typical` : '–'],
       ];
+      const tune = gameTune(h, acc, presses);
+      rows.push(['Tracking', tune.changes && tune.changes.length ? (tune.reverted ? 'your ' : 'tuned for your ') + h.toLowerCase() + ' hand: ' + tune.changes.join(' · ') + (tune.reverted ? '' : '. If the next round is clearly worse, it’s undone by itself.') : tune.note || '–']);
+      G.tune = tune;
       $('gameSum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+      $('gameUndo').hidden = !tune.undo;
       $('gameEnd').hidden = false;
-      pOn = BASE.pOn;
-      pOff = BASE.pOff;
-      pinchOn = false;
+      $('gameHint').hidden = false;
+    }
+    // on the end card your hand works the buttons: move onto one and pinch, the same deliberate press as everywhere else
+    function overFrame(f, t) {
+      const o = G.over;
+      if (!o || $('gameEnd').hidden) return;
+      let hot = null;
+      ['gameAgain', 'gameUndo', 'replayBtn2', 'gameBack'].forEach((id) => {
+        const b = $(id);
+        if (b.hidden) return;
+        const r = b.getBoundingClientRect(),
+          d = Math.hypot(Math.max(r.left - f.x, 0, f.x - r.right), Math.max(r.top - f.y, 0, f.y - r.bottom)),
+          on = d < 16;
+        b.classList.toggle('hot', on);
+        if (on) hot = b;
+      });
+      if (!f.pinch) o.openSince = o.openSince || t;
+      // not in the first second (the round's last pinch can't press anything), and only a fresh pinch after an open hand
+      if (f.pinch && !o.wasPinch && hot && o.openSince && t - o.openSince > 200 && performance.now() - o.t0 > 1000) {
+        SND.tap();
+        hot.classList.remove('hot');
+        hot.click();
+      }
+      if (f.pinch) o.openSince = 0;
+      o.wasPinch = f.pinch;
     }
 
     // ---- the replay log: what the tracker saw and what the page showed, frame by frame, so a problem can be watched again
@@ -2397,7 +2553,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.24',
+        app: 'v0.25',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -2732,7 +2888,7 @@
         c = $('cur');
       recFrame(t, L, f, label, REC.nHands || 1, false);
       dodge(f, t);
-      const ok = step === 'ask' || step === 'done' || step === 'game' || checkHand(label, t);
+      const ok = step === 'ask' || step === 'done' || step === 'game' || step === 'gameover' || checkHand(label, t);
       c.hidden = false;
       c.style.left = f.x + 'px';
       c.style.top = f.y + 'px';
@@ -2746,6 +2902,7 @@
       else if (step === 'fast' && S.el) fastFrame(f, t);
       else if (step === 'ask') askFrame(f, t);
       else if (step === 'game') gameFrame(f, t, label);
+      else if (step === 'gameover') overFrame(f, t);
     }
     // ---- an imaginary vertical axis down the middle of you. In the mirrored view (as you see yourself) your right hand works
     // to the right of it and your left hand to the left. It starts at the centre of the picture, and while both hands are in
@@ -2912,8 +3069,18 @@
       startGame();
     };
     $('gameAgain').onclick = () => startGame();
+    $('gameUndo').onclick = () => {
+      if (G.tune && G.tune.undo) G.tune.undo();
+      $('gameUndo').hidden = true;
+      const dd = [...$('gameSum').querySelectorAll('dd')].pop();
+      if (dd) dd.textContent = 'Tuning undone: back to the settings from before this round.';
+    };
     $('gameBack').onclick = () => {
       $('gameEnd').hidden = true;
+      if (step === 'gameover') step = null;
+      $('cur').hidden = true;
+      $('camCtl').hidden = true;
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       $(localStorage.getItem(KEY) ? 'done' : 'intro').hidden = false;
     };
     // the training runs full screen, so the reach and targets use the whole display and nothing else distracts
@@ -2985,6 +3152,8 @@
     window.trainGameFrame = gameFrame;
     window.trainGameState = () => G;
     window.trainGameEnd = endGame;
+    window.trainGameTune = gameTune;
+    window.trainOverFrame = overFrame;
     window.trainReplay = showReplay;
     window.trainRecLog = recLog;
   })();
