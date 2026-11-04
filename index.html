@@ -1242,6 +1242,134 @@
 </section>
 
 <script>
+/* sprites.js — inline SVG sprites for "Slice the fruit".
+ * Author: tbirdpower3000 and contributors. Plain <script>-safe, no modules.
+ *
+ * Every sprite is raw SVG markup with viewBox "0 0 100 100". The two halves
+ * of a fruit share the whole fruit's coordinate frame (the cut runs down
+ * x = 50), so drawing whole, left and right at the same position lines up
+ * exactly; the game then moves the halves apart and spins them.
+ *
+ * Usage:
+ *   const img = new Image(); img.src = FRUIT_SPRITES.toDataURI(FRUIT_SPRITES.apple.whole);
+ *   ctx.drawImage(img, x - 60, y - 60, 120, 120);
+ * Cache the Image objects once (see FRUIT_SPRITES.preload). Each string is
+ * well under 2 KB. Barrels have no halves: they are not sliced, they are hit.
+ */
+const FRUIT_SPRITES = (function () {
+  'use strict';
+  var H = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">';
+  var E = '</svg>';
+  // clip the body to one side of the cut line
+  var L = '<clipPath id="l"><rect x="0" y="0" width="50" height="100"/></clipPath>';
+  var R = '<clipPath id="r"><rect x="50" y="0" width="50" height="100"/></clipPath>';
+
+  /* ---------- watermelon ---------- */
+  var melonBody =
+    '<circle cx="50" cy="50" r="44" fill="#2f8f3a"/>' +
+    '<path d="M50 6c-6 14-6 74 0 88M34 9c-12 20-12 62 0 82M66 9c12 20 12 62 0 82M21 18c-16 20-16 44 0 64M79 18c16 20 16 44 0 64" fill="none" stroke="#1d5f26" stroke-width="5" stroke-linecap="round"/>' +
+    '<ellipse cx="34" cy="30" rx="8" ry="12" fill="#fff" opacity=".18" transform="rotate(-30 34 30)"/>';
+  var melonFace =
+    '<ellipse cx="50" cy="50" rx="11" ry="44" fill="#1d5f26"/>' +
+    '<ellipse cx="50" cy="50" rx="9.5" ry="41.5" fill="#e9f5dc"/>' +
+    '<ellipse cx="50" cy="50" rx="8" ry="37.5" fill="#ff4d6d"/>' +
+    '<g fill="#2b1a1a"><ellipse cx="50" cy="34" rx="1.8" ry="3"/><ellipse cx="50" cy="50" rx="1.8" ry="3"/><ellipse cx="50" cy="66" rx="1.8" ry="3"/><ellipse cx="46" cy="42" rx="1.5" ry="2.6"/><ellipse cx="54" cy="58" rx="1.5" ry="2.6"/></g>';
+
+  /* ---------- orange ---------- */
+  var orangeBody =
+    '<circle cx="50" cy="51" r="43" fill="#ff9a1f"/>' +
+    '<circle cx="50" cy="51" r="43" fill="none" stroke="#e07a00" stroke-width="2"/>' +
+    '<g fill="#e07a00" opacity=".45"><circle cx="30" cy="40" r="1.6"/><circle cx="60" cy="30" r="1.6"/><circle cx="72" cy="58" r="1.6"/><circle cx="40" cy="72" r="1.6"/><circle cx="55" cy="55" r="1.4"/><circle cx="24" cy="60" r="1.4"/><circle cx="68" cy="78" r="1.4"/></g>' +
+    '<ellipse cx="34" cy="32" rx="9" ry="13" fill="#fff" opacity=".22" transform="rotate(-30 34 32)"/>' +
+    '<path d="M50 8v6" stroke="#6b4a1f" stroke-width="4" stroke-linecap="round"/>' +
+    '<path d="M51 12c8-10 20-9 24-4-6 6-16 8-24 4z" fill="#3fa23f"/>';
+  var orangeFace =
+    '<ellipse cx="50" cy="51" rx="11" ry="43" fill="#fff0cf"/>' +
+    '<ellipse cx="50" cy="51" rx="8.5" ry="38" fill="#ffb648"/>' +
+    '<path d="M50 13v76M43 22l14 58M57 22l-14 58M41.6 51h16.8" stroke="#fff0cf" stroke-width="1.6"/>';
+
+  /* ---------- apple ---------- */
+  var appleBody =
+    '<path d="M50 24c8-8 22-10 32 0 12 12 12 36 2 52-7 12-16 17-24 15-4-1-6-2-10-2s-6 1-10 2c-8 2-17-3-24-15-10-16-10-40 2-52 10-10 24-8 32 0z" fill="#e5322d"/>' +
+    '<path d="M50 24c8-8 22-10 32 0 7 7 10 18 9 30-6-14-14-20-22-21-9-1-15 5-19 9-4-4-10-10-19-9-8 1-16 7-22 21-1-12 2-23 9-30 10-10 24-8 32 0z" fill="#ff5a4e" opacity=".55"/>' +
+    '<ellipse cx="33" cy="42" rx="6" ry="11" fill="#fff" opacity=".28" transform="rotate(-15 33 42)"/>' +
+    '<path d="M50 24c-1-7-3-12-8-17" stroke="#5b3a1c" stroke-width="4" stroke-linecap="round" fill="none"/>' +
+    '<path d="M52 16c6-9 17-10 23-6-5 7-15 10-23 6z" fill="#49a83c"/>';
+  var appleFace =
+    '<ellipse cx="50" cy="55" rx="12" ry="37" fill="#e5322d"/>' +
+    '<ellipse cx="50" cy="55" rx="10" ry="34.5" fill="#fff3d6"/>' +
+    '<path d="M50 30c-4 8-4 42 0 50 4-8 4-42 0-50z" fill="#f2dfb6"/>' +
+    '<ellipse cx="50" cy="48" rx="1.8" ry="3.6" fill="#4a2a12"/><ellipse cx="50" cy="62" rx="1.8" ry="3.6" fill="#4a2a12"/>';
+
+  /* ---------- banana ---------- */
+  // solid crescent: outer edge from the stem (10,72) up over to the tip (90,24),
+  // inner edge back. The vertical cut at x=50 crosses it between y~18 and y~44.
+  var bananaBody =
+    '<path d="M10 76C4 30 46 0 92 18C76 44 46 66 10 76z" fill="#f7d33b"/>' +
+    '<path d="M16 68C20 36 48 14 84 20C66 40 44 58 16 68z" fill="#fff3a6" opacity=".5"/>' +
+    '<path d="M14 64C22 42 42 24 72 20" stroke="#d9b52a" stroke-width="2.4" fill="none" stroke-linecap="round" opacity=".8"/>' +
+    '<path d="M10 76c-3 2-3 7 1 9 3 1 7-2 8-6z" fill="#7a5a12"/>' +
+    '<path d="M92 18c3-1 6 1 5 4-1 2-5 2-8 1z" fill="#7a5a12"/>' +
+    '<path d="M10 76C4 30 46 0 92 18" stroke="#c9a51a" stroke-width="1.6" fill="none" opacity=".5"/>';
+  var bananaFaceL = '<ellipse cx="50" cy="36" rx="7" ry="20" fill="#fff3bd" stroke="#d9b52a" stroke-width="1.5"/><ellipse cx="50" cy="36" rx="1.6" ry="3.5" fill="#5b4310" opacity=".6"/>';
+  var bananaFaceR = bananaFaceL;
+
+  /* ---------- kiwi ---------- */
+  var kiwiBody =
+    '<ellipse cx="50" cy="50" rx="40" ry="45" fill="#8c6a3f"/>' +
+    '<ellipse cx="50" cy="50" rx="40" ry="45" fill="none" stroke="#6e5230" stroke-width="2"/>' +
+    '<g stroke="#5c4327" stroke-width="1.4" stroke-linecap="round" opacity=".7"><path d="M22 30l3-3M35 20l3-3M55 14l3-3M70 24l3-3M80 44l3-3M78 66l3-3M64 82l3-3M44 86l3-3M26 72l3-3M18 52l3-3M40 48l3-3M58 56l3-3M50 34l3-3M34 62l3-3M66 40l3-3"/></g>' +
+    '<ellipse cx="35" cy="30" rx="8" ry="12" fill="#fff" opacity=".12" transform="rotate(-30 35 30)"/>';
+  var kiwiFace =
+    '<ellipse cx="50" cy="50" rx="11" ry="45" fill="#8c6a3f"/>' +
+    '<ellipse cx="50" cy="50" rx="9.5" ry="42" fill="#7cc242"/>' +
+    '<ellipse cx="50" cy="50" rx="3.6" ry="18" fill="#e8f5c8"/>' +
+    '<g fill="#1f1a10"><ellipse cx="50" cy="26" rx="1.3" ry="2.2"/><ellipse cx="46.5" cy="34" rx="1.3" ry="2.2"/><ellipse cx="53.5" cy="34" rx="1.3" ry="2.2"/><ellipse cx="45.5" cy="44" rx="1.3" ry="2.2"/><ellipse cx="54.5" cy="44" rx="1.3" ry="2.2"/><ellipse cx="45.5" cy="56" rx="1.3" ry="2.2"/><ellipse cx="54.5" cy="56" rx="1.3" ry="2.2"/><ellipse cx="46.5" cy="66" rx="1.3" ry="2.2"/><ellipse cx="53.5" cy="66" rx="1.3" ry="2.2"/><ellipse cx="50" cy="74" rx="1.3" ry="2.2"/></g>';
+
+  /* ---------- barrel (replaces bombs; no fuse) ---------- */
+  var barrel = H +
+    '<path d="M22 12h56c6 12 8 26 8 38s-2 26-8 38H22c-6-12-8-26-8-38s2-26 8-38z" fill="#9c6a35"/>' +
+    '<path d="M34 12c-4 12-6 26-6 38s2 26 6 38M50 12c-1 12-1 26-1 38s0 26 1 38M66 12c4 12 6 26 6 38s-2 26-6 38" stroke="#6b4420" stroke-width="2.5" fill="none"/>' +
+    '<path d="M22 12h56c6 12 8 26 8 38s-2 26-8 38H22c-6-12-8-26-8-38s2-26 8-38z" fill="none" stroke="#5a3617" stroke-width="3"/>' +
+    '<path d="M24 24h52M17 44h66M17 56h66M24 76h52" stroke="#3e3a3a" stroke-width="6" stroke-linecap="round"/>' +
+    '<path d="M24 23h52M17 43h66M17 55h66M24 75h52" stroke="#8a8484" stroke-width="1.5" stroke-linecap="round"/>' +
+    '<ellipse cx="30" cy="34" rx="4" ry="8" fill="#fff" opacity=".12"/>' + E;
+
+  function half(body, face, side) {
+    return H + (side === 'l' ? L : R) + '<g clip-path="url(#' + side + ')">' + body + '</g>' + face + E;
+  }
+  function whole(body) { return H + body + E; }
+
+  var S = {
+    watermelon: { whole: whole(melonBody), left: half(melonBody, melonFace, 'l'), right: half(melonBody, melonFace, 'r'), juice: '#ff4d6d', radius: 44 },
+    orange:     { whole: whole(orangeBody), left: half(orangeBody, orangeFace, 'l'), right: half(orangeBody, orangeFace, 'r'), juice: '#ffa726', radius: 43 },
+    apple:      { whole: whole(appleBody), left: half(appleBody, appleFace, 'l'), right: half(appleBody, appleFace, 'r'), juice: '#f6d78c', radius: 42 },
+    banana:     { whole: whole(bananaBody), left: half(bananaBody, bananaFaceL, 'l'), right: half(bananaBody, bananaFaceR, 'r'), juice: '#fff0a8', radius: 40 },
+    kiwi:       { whole: whole(kiwiBody), left: half(kiwiBody, kiwiFace, 'l'), right: half(kiwiBody, kiwiFace, 'r'), juice: '#8bc34a', radius: 42 },
+    barrel:     { whole: barrel, juice: '#8d5a2b', radius: 42 }
+  };
+  // radius: approximate hit radius in the 100-unit frame (scale by drawn size / 100).
+
+  S.toDataURI = function (svg) { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); };
+  /* Build Image objects once: returns {name: {whole: Image, left: Image, right: Image}} */
+  S.preload = function (onDone) {
+    var out = {}, pending = 0;
+    ['watermelon', 'orange', 'apple', 'banana', 'kiwi', 'barrel'].forEach(function (name) {
+      out[name] = {};
+      ['whole', 'left', 'right'].forEach(function (part) {
+        if (!S[name][part]) return;
+        var img = new Image(); pending++;
+        img.onload = img.onerror = function () { if (--pending === 0 && onDone) onDone(out); };
+        img.src = S.toDataURI(S[name][part]);
+        out[name][part] = img;
+      });
+    });
+    return out;
+  };
+  return S;
+})();
+</script>
+<script>
   (() => {
     const $ = (id) => document.getElementById(id);
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -3470,6 +3598,8 @@
         ['Fruit game: rounds', (a, g, c, z) => z.length, 'n'],
         ['Fruit game: fruit sliced', (a, g, c, z) => avg(last(z, 5), (x) => (x.thrown ? x.sliced / x.thrown : null)), '%'],
         ['Fruit game: swipes that cut', (a, g, c, z) => avg(last(z, 5), (x) => x.acc), '%'],
+        ['Fruit game: small fruit sliced', (a, g, c, z) => avg(last(z, 5), (x) => (x.bySize && x.bySize.small && x.bySize.small.n ? x.bySize.small.hit / x.bySize.small.n : null)), '%'],
+        ['Fruit game: swipe precision (effective width, px)', (a, g, c, z) => avg(last(z, 5), (x) => x.effW), 'i'],
         ['Fruit game: swipe top speed (px/s)', (a, g, c, z) => avg(last(z, 5), (x) => x.peakV), 'i'],
         ['Fruit game: cursor lag in swipes (ms)', (a, g, c, z) => avg(last(z, 5), (x) => x.lagMs), 'i'],
         ['Fruit game: overshoot after a swipe (px)', (a, g, c, z) => avg(last(z, 5), (x) => x.overPx), 'i'],
@@ -3650,6 +3780,13 @@
         C_.push({ role: 'cov', f: (x) => (x.light && x.light.handContrast != null && isFinite(x.light.handContrast) ? x.light.handContrast : mC) / 100 });
       }
       if (dcov) C_.push({ role: 'cov', f: (x) => (x.distCm != null && isFinite(x.distCm) ? x.distCm : mD) / 100 });
+      // the fruit game: rounds with more small fruit are harder, so their share is allowed for
+      if (kind === 'fruit') {
+        const smallOf = (x) => (x.bySize && x.thrown > 0 && x.bySize.small ? x.bySize.small.n / x.thrown : null),
+          sm = use.map(smallOf).filter((v) => v != null),
+          mS = avgOf(sm);
+        if (sm.length >= 3) C_.push({ role: 'cov', f: (x) => smallOf(x) ?? mS });
+      }
       // drop columns that are all zero or repeat an earlier one exactly (an effect that never varied can't be judged)
       const kept = [],
         seen = new Set();
@@ -3847,7 +3984,8 @@
         fz = rows.filter((x) => x.kind === 'fruit'),
         cutN = sum(fz, 'sliced'),
         thrN = sum(fz, 'thrown');
-      return { rounds: rows.length, popRounds: g.length, pop: pops + miss > 0 ? pops / (pops + miss) : null, carryRounds: c.length, carry: del + sl > 0 ? del / (del + sl) : null, fruitRounds: fz.length, fruit: thrN > 0 ? cutN / thrN : null };
+      const fw = fz.map((x) => x.effW).filter((v) => v != null && isFinite(v));
+      return { rounds: rows.length, popRounds: g.length, pop: pops + miss > 0 ? pops / (pops + miss) : null, carryRounds: c.length, carry: del + sl > 0 ? del / (del + sl) : null, fruitRounds: fz.length, fruit: thrN > 0 ? cutN / thrN : null, fruitW: fw.length ? Math.round(median(fw)) : null };
     }
     function aimBest(h, kind) {
       const ids = kind === 'model' ? MODEL_IDS : MAPPING_IDS;
@@ -3906,7 +4044,7 @@
         const st = aimStats(h, kind, id),
           best = aimBest(h, kind) === id,
           big = st.pop != null ? st.pop : st.carry != null ? st.carry : st.fruit,
-          parts = [st.pop != null ? `Pop ${pct(st.pop)}` : null, st.carry != null ? `Carry ${pct(st.carry)}` : null, st.fruit != null ? `Fruit ${pct(st.fruit)}` : null].filter(Boolean).join(' · '),
+          parts = [st.pop != null ? `Pop ${pct(st.pop)}` : null, st.carry != null ? `Carry ${pct(st.carry)}` : null, st.fruit != null ? `Fruit ${pct(st.fruit)}${st.fruitW != null ? ` · ${st.fruitW} px` : ''}` : null].filter(Boolean).join(' · '),
           locked = kind === 'model' ? lockedM === id : lockedP === id,
           off = !q ? 'train this hand first' : kind === 'mapping' && !camOk.includes(id) ? 'train again to unlock' : '';
         return `<button type="button" class="aimOpt${locked ? ' sel' : ''}" data-kind="${kind}" data-id="${id}" aria-pressed="${locked}"${off ? ' disabled' : ''}>
@@ -4195,7 +4333,8 @@
           for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'effWHits', 'tp', 'speed']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
         } else if (x.kind === 'fruit') {
-          for (const k of ['sliced', 'thrown', 'barrelsHit', 'barrelsThrown', 'swipes', 'cutSwipes', 'bestCombo', 'peakV', 'acc', 'lagMs', 'overPx', 'dropsFast', 'fastFrames', 'thr']) o[k] = r3n(x[k]);
+          for (const k of ['sliced', 'thrown', 'barrelsHit', 'barrelsThrown', 'swipes', 'cutSwipes', 'bestCombo', 'peakV', 'acc', 'lagMs', 'overPx', 'dropsFast', 'fastFrames', 'thr', 'effW', 'missPx']) o[k] = r3n(x[k]);
+          o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), miss: r3n(x.bySize[z].miss) }])) : null;
           o.gentle = !!x.gentle;
           o.swipe = x.swipe ? { slow: r3n(x.swipe.slow), mid: r3n(x.swipe.mid), fast: r3n(x.swipe.fast) } : null;
         } else {
@@ -5086,10 +5225,23 @@
     // the hand's own path with the cursor's), how far the cursor runs past where the hand stopped, and how often the camera
     // loses the hand mid-swipe. A gentler version (slower arcs, bigger fruit, an easier speed) is chosen for a shaky hand,
     // or set with the 🐢 button. The settings are not tuned by this game.
+    // three sizes, a third of the throws each: small ones are worth more and show precision, like the pop game's bubbles
     const FRUIT_LEN = 60,
-      FRUIT_EMOJI = ['🍉', '🍊', '🍎', '🍋', '🍑', '🥝', '🍐'],
-      FRUIT_R = [30, 40, 52];
-    let FG = null;
+      FSIZES = [
+        ['small', 24, 2],
+        ['medium', 36, 1],
+        ['large', 52, 1],
+      ],
+      FRUIT_KINDS = ['watermelon', 'orange', 'apple', 'banana', 'kiwi'],
+      FRUIT_EMOJI = { watermelon: '🍉', orange: '🍊', apple: '🍎', banana: '🍌', kiwi: '🥝' };
+    let FG = null,
+      FIMG = null; // the painted sprites, built once from FRUIT_SPRITES
+    const fruitImg = (kind, part) => {
+      const im = FIMG && FIMG[kind] && FIMG[kind][part];
+      return im && im.complete && im.naturalWidth > 0 ? im : null;
+    };
+    // the drawn size of a sprite whose hit radius should be r px (the sprite's own hit radius is in its 100-unit frame)
+    const spriteSize = (kind, r) => (r * 100) / ((FRUIT_SPRITES[kind] && FRUIT_SPRITES[kind].radius) || 42);
     function fruitGentleMode() {
       try {
         return localStorage.getItem('fruitGentle') || 'auto';
@@ -5184,7 +5336,8 @@
       const cv = document.createElement('canvas');
       cv.id = 'fruitCv';
       document.body.appendChild(cv);
-      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1 };
+      if (!FIMG && typeof FRUIT_SPRITES !== 'undefined') FIMG = FRUIT_SPRITES.preload();
+      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, sz: {}, dists: [], missD: [] };
       fruitSetup(HAND);
       step = 'fruit';
       S = {};
@@ -5290,15 +5443,20 @@
         n = 1 + (Math.random() < 0.25 + 0.35 * prog ? 1 : 0) + (Math.random() < 0.15 * prog ? 1 : 0);
       for (let i = 0; i < n; i++) {
         const barrel = FG.el > 5 && i === n - 1 && Math.random() < 0.125, // about one throw in eight
-          r = (barrel ? 34 : FRUIT_R[(Math.random() * 3) | 0]) * (FG.gentle ? 1.25 : 1),
+          sz = FSIZES[(Math.random() * 3) | 0],
+          r = (barrel ? 34 : sz[1]) * (FG.gentle ? 1.25 : 1),
           x0 = W * (0.15 + 0.7 * Math.random()),
           apex = H * (0.12 + 0.35 * Math.random()),
           vy = -Math.sqrt(2 * FG.g * (H + r - apex)),
           T = (2 * -vy) / FG.g,
           vx = (W * (0.2 + 0.6 * Math.random()) - x0) / T;
-        FG.fruits.push({ x: x0, y: H + r, vx, vy, r, barrel, emoji: barrel ? '' : FRUIT_EMOJI[(Math.random() * FRUIT_EMOJI.length) | 0], rot: Math.random() * 6, vr: (Math.random() - 0.5) * 3 });
+        const kind = barrel ? 'barrel' : FRUIT_KINDS[(Math.random() * FRUIT_KINDS.length) | 0];
+        FG.fruits.push({ x: x0, y: H + r, vx, vy, r, barrel, kind, size: barrel ? null : sz[0], pts: barrel ? 0 : sz[2], emoji: barrel ? '' : FRUIT_EMOJI[kind], rot: Math.random() * 6, vr: (Math.random() - 0.5) * 3 });
         if (barrel) FG.barrelsThrown++;
-        else FG.thrown++;
+        else {
+          FG.thrown++;
+          fszStat(sz[0]).n++;
+        }
       }
     }
     function fruitTick(now) {
@@ -5372,24 +5530,36 @@
         x.save();
         x.translate(f_.x, f_.y);
         x.rotate(f_.rot);
-        if (f_.barrel) drawBarrel(x, f_.r);
+        const im = fruitImg(f_.kind, 'whole');
+        if (im) {
+          const D = spriteSize(f_.kind, f_.r);
+          x.drawImage(im, -D / 2, -D / 2, D, D);
+        } else if (f_.barrel) drawBarrel(x, f_.r);
         else {
           x.font = `${Math.round(f_.r * 1.9)}px serif`;
           x.fillText(f_.emoji, 0, 0);
         }
         x.restore();
       }
+      // the halves: the same sprite frame as the whole fruit, cut along the swipe, pushed apart and spinning
       for (const h of FG.halves) {
         x.save();
         x.globalAlpha = clamp(h.life / 0.6, 0, 1);
         x.translate(h.x, h.y);
-        x.rotate(h.ang + h.rot);
-        x.beginPath();
-        x.rect(-h.r * 1.2, h.side < 0 ? -h.r * 1.2 : 0, h.r * 2.4, h.r * 1.2);
-        x.clip();
-        x.rotate(-h.ang);
-        x.font = `${Math.round(h.r * 1.9)}px serif`;
-        x.fillText(h.emoji, 0, 0);
+        const im = fruitImg(h.kind, h.part);
+        if (im) {
+          x.rotate(h.theta + h.rot);
+          const D = spriteSize(h.kind, h.r);
+          x.drawImage(im, -D / 2, -D / 2, D, D);
+        } else {
+          x.rotate(h.ang + h.rot);
+          x.beginPath();
+          x.rect(-h.r * 1.2, h.side < 0 ? -h.r * 1.2 : 0, h.r * 2.4, h.r * 1.2);
+          x.clip();
+          x.rotate(-h.ang);
+          x.font = `${Math.round(h.r * 1.9)}px serif`;
+          x.fillText(h.emoji, 0, 0);
+        }
         x.restore();
       }
       for (const j of FG.juice) {
@@ -5424,6 +5594,15 @@
         u = l2 > 0 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1) : 0;
       return Math.hypot(a.x + u * dx - p.x, a.y + u * dy - p.y);
     }
+    // distance from a point to the whole line through a-b (the blade's line, for precision)
+    function lineDist(a, b, p) {
+      const dx = b.x - a.x,
+        dy = b.y - a.y,
+        l = Math.hypot(dx, dy);
+      return l > 0 ? Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / l : Math.hypot(p.x - a.x, p.y - a.y);
+    }
+    // how far past a fruit's edge a swipe still counts as a near miss: 1.5 radii, or 30 px beyond the edge for small fruit
+    const nearBand = (r) => Math.max(1.5 * r, r + 30);
     // a wooden barrel: a rounded brown body, dark staves and two iron hoops; something to let pass, not to slice
     function drawBarrel(x, r) {
       const w = r * 1.5,
@@ -5453,8 +5632,12 @@
         x.stroke();
       }
     }
-    function sliceFruit(f_, a, b, sw) {
+    function fszStat(k) {
+      return (FG.sz[k] = FG.sz[k] || { n: 0, hit: 0, miss: 0 });
+    }
+    function sliceFruit(f_, a, b, sw, d) {
       FG.fruits.splice(FG.fruits.indexOf(f_), 1);
+      f_.cut = true;
       if (f_.barrel) {
         FG.barrelsHit++;
         FG.score = Math.max(0, FG.score - 5);
@@ -5468,15 +5651,19 @@
       sw.cut++;
       FG.combo++;
       FG.bestCombo = Math.max(FG.bestCombo, sw.cut);
-      // a point a fruit, one more for a small one, and one more for each extra fruit in the same swipe
-      FG.score += 1 + (f_.r <= FRUIT_R[0] * (FG.gentle ? 1.25 : 1) ? 1 : 0) + (sw.cut > 1 ? 1 : 0);
+      if (f_.size) fszStat(f_.size).hit++;
+      if (d != null) FG.dists.push(d); // how far the blade passed from the centre
+      // a point a fruit, two for a small one, and one more for each extra fruit in the same swipe
+      FG.score += (f_.pts || 1) + (sw.cut > 1 ? 1 : 0);
       const L = Math.hypot(b.x - a.x, b.y - a.y) || 1,
         ux = (b.x - a.x) / L,
         uy = (b.y - a.y) / L,
         ang = Math.atan2(uy, ux);
+      // the sprite's cut runs down its middle; turned by (swipe angle − 90°) it lies along the swipe. Its left part then
+      // sits on the (−uy, ux) side, its right part on the other
       for (const side of [-1, 1])
-        FG.halves.push({ x: f_.x, y: f_.y, vx: f_.vx + -uy * side * 140 + ux * 60, vy: f_.vy + ux * side * 140 + uy * 60, rot: 0, vr: side * 4, ang, side, r: f_.r, emoji: f_.emoji, life: 1.2 });
-      const col = { '🍉': '#ff4d6d', '🍊': '#ffa53b', '🍎': '#ff3b3b', '🍋': '#ffe14d', '🍑': '#ffb08a', '🥝': '#8bd450', '🍐': '#c8e05a' }[f_.emoji] || '#ff6';
+        FG.halves.push({ x: f_.x, y: f_.y, vx: f_.vx + -uy * side * 140 + ux * 60, vy: f_.vy + ux * side * 140 + uy * 60, rot: 0, vr: side * 4, ang, theta: ang - Math.PI / 2, side, part: side > 0 ? 'left' : 'right', kind: f_.kind, r: f_.r, emoji: f_.emoji, life: 1.2 });
+      const col = (FRUIT_SPRITES[f_.kind] && FRUIT_SPRITES[f_.kind].juice) || '#ff6';
       for (let i = 0; i < 10; i++) FG.juice.push({ x: f_.x, y: f_.y, vx: (Math.random() - 0.5) * 400, vy: (Math.random() - 0.9) * 400, life: 0.5, s: 2 + Math.random() * 4, col });
       const f0 = 523.25 * Math.pow(2, Math.min(sw.cut - 1, 12) / 12);
       note(f0, 0, 0.08, 0.15);
@@ -5530,6 +5717,13 @@
     function fruitEndSwipe(t) {
       const sw = FG.swipe;
       FG.swipe = null;
+      // the fruit this swipe passed close to and didn't cut: misses, by size, with how far off the blade was
+      for (const [f_, d] of sw.near)
+        if (!f_.cut && f_.size) {
+          fszStat(f_.size).miss++;
+          FG.missD.push(d);
+          FG.dists.push(d);
+        }
       FG.post = { sw, tEnd: t, ser: [] };
     }
     // the 300 ms after a swipe: the overshoot (how far the cursor ran past where the hand finally stopped, along the
@@ -5549,6 +5743,23 @@
         for (const q of P.ser) over = Math.max(over, ((q[3] - last[1]) * dx + (q[4] - last[2]) * dy) / L);
       }
       FG.swipes.push({ peak: sw.peak, cut: sw.cut, lag: fruitLag(all), over });
+    }
+    // swipe precision as an effective width, like the pop game's: 4.133 × the spread of the blade's nearest distance
+    // from the fruit's centre, over hits and near misses alike (misses count at their measured distance)
+    function fruitEffW() {
+      const d = FG.dists;
+      if (d.length < 6) return null;
+      return Math.round(4.133 * Math.sqrt(d.reduce((a, v) => a + v * v, 0) / d.length));
+    }
+    function fruitBySizeText() {
+      const parts = FSIZES.map(([k]) => {
+        const q = FG.sz[k];
+        if (!q || !q.n) return null;
+        return `${k} ${Math.round((100 * q.hit) / q.n)}% (${q.hit} of ${q.n}${q.miss ? `, ${q.miss} near miss${q.miss > 1 ? 'es' : ''}` : ''})`;
+      }).filter(Boolean);
+      const w = fruitEffW(),
+        m = FG.missD.length ? Math.round(median(FG.missD)) : null;
+      return (parts.length ? parts.join(' · ') : '–') + (w != null ? `, swipe precision ${w} px (effective width)` : '') + (m != null ? `, misses ${m} px off` : '');
     }
     function fruitLost(now) {
       if (FG.lastHandT && now - FG.lastHandT < 600 && FG.lastSpeed >= 0.7 * FG.thr) FG.dropsFast++;
@@ -5604,14 +5815,20 @@
         FG.fastFrames++;
         if (!FG.swipe) {
           if (FG.post) fruitClosePost();
-          FG.swipe = { peak: 0, cut: 0, start: { x: prev.x, y: prev.y }, end: p, slow: 0, ser: FG.buf.slice(0, -1) };
+          FG.swipe = { peak: 0, cut: 0, start: { x: prev.x, y: prev.y }, end: p, slow: 0, ser: FG.buf.slice(0, -1), near: new Map() };
         }
         const sw = FG.swipe;
         sw.peak = Math.max(sw.peak, v);
         sw.slow = 0;
         sw.end = p;
-        // the path since the last frame against every fruit in flight, so a fast swipe can't jump over one
-        for (const f_ of [...FG.fruits]) if (segDist(prev, p, f_) <= f_.r) sliceFruit(f_, prev, p, sw);
+        // the path since the last frame against every fruit in flight, so a fast swipe can't jump over one; a pass
+        // within 1.5 radii that doesn't cut is remembered as a near miss (its nearest distance to the centre)
+        for (const f_ of [...FG.fruits]) {
+          const d = segDist(prev, p, f_);
+          // precision is the blade's line past the centre (the perpendicular distance), not where the frame happened to fall
+          if (d <= f_.r) sliceFruit(f_, prev, p, sw, lineDist(prev, p, f_));
+          else if (d <= nearBand(f_.r) && !f_.barrel) sw.near.set(f_, Math.min(d, sw.near.get(f_) ?? Infinity));
+        }
       } else if (FG.swipe) {
         FG.swipe.slow++;
         if (FG.swipe.slow >= 2) fruitEndSwipe(t);
@@ -5646,7 +5863,7 @@
         lt = lightRoundEnd();
       endTrialRound(FG, h);
       const aimB0 = { model: aimBest(h, 'model'), mapping: aimBest(h, 'mapping') };
-      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'fruit', v: APP_VER, hand: h, score: FG.score, sliced: FG.sliced, thrown: FG.thrown, barrelsHit: FG.barrelsHit, barrelsThrown: FG.barrelsThrown, swipes: sws.length, cutSwipes, bestCombo: FG.bestCombo, peakV: peakV != null ? Math.round(peakV) : null, acc, lagMs, overPx: overPx != null ? Math.round(overPx) : null, dropsFast: FG.dropsFast, fastFrames: FG.fastFrames, gentle: FG.gentle, thr: FG.thr, swipe: FG.swipeV ? { slow: FG.swipeV.slow, mid: FG.swipeV.mid, fast: FG.swipeV.fast } : null, trained: FG.profiled, model: FG.model || null, choices: null, features: FG.features || [], use: FG.use || null, mapping: FG.mapping || null, distCm: lt.distCm ?? null });
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'fruit', v: APP_VER, hand: h, score: FG.score, sliced: FG.sliced, thrown: FG.thrown, barrelsHit: FG.barrelsHit, barrelsThrown: FG.barrelsThrown, swipes: sws.length, cutSwipes, bestCombo: FG.bestCombo, peakV: peakV != null ? Math.round(peakV) : null, acc, lagMs, overPx: overPx != null ? Math.round(overPx) : null, dropsFast: FG.dropsFast, fastFrames: FG.fastFrames, gentle: FG.gentle, thr: FG.thr, bySize: Object.keys(FG.sz).length ? FG.sz : null, effW: fruitEffW(), missPx: FG.missD.length ? Math.round(median(FG.missD)) : null, swipe: FG.swipeV ? { slow: FG.swipeV.slow, mid: FG.swipeV.mid, fast: FG.swipeV.fast } : null, trained: FG.profiled, model: FG.model || null, choices: null, features: FG.features || [], use: FG.use || null, mapping: FG.mapping || null, distCm: lt.distCm ?? null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -5657,6 +5874,7 @@
           ['Hand model', modelSummary(FG, h)],
           ['Camera model', camSummary(FG, h)],
           ['Fruit sliced', `${FG.sliced} of ${FG.thrown} (${pctOf(FG.sliced, FG.thrown)})${FG.bestCombo > 1 ? ` · best: ${FG.bestCombo} in one swipe` : ''}`],
+          ['By size', fruitBySizeText()],
           ['Barrels', FG.barrelsThrown ? `${FG.barrelsHit} of ${FG.barrelsThrown} sliced by mistake` : 'none thrown'],
           ['Your swipes', FG.swipeV ? `slow ${FG.swipeV.slow} · comfortable ${FG.swipeV.mid} · fast ${FG.swipeV.fast} px/s (measured in the warm-up)` : 'not measured yet'],
           ['Swipes', sws.length ? `${sws.length}, ${pctOf(cutSwipes, sws.length)} cut something · a swipe needs ${FG.thr} px/s` : `none yet: a swipe needs ${FG.thr} px/s`],
@@ -6671,7 +6889,7 @@
     window.trainFeatureSection = featureSection;
     window.trainTrialFit = (kind, rows) => { const F = trialFit(kind, rows, trialMetric); return { n: F.n, df: F.df, thr: F.thr, feats: Object.fromEntries(FEATURE_IDS.map((id) => [id, F.judge('feat', id)])), maps: Object.fromEntries(MAPPING_IDS.slice(1).map((m) => [m, F.judge('map', m)])) }; };
     window.trainOA = OA8;
-    window.trainFruit = { start: startFruit, frame: fruitFrame, end: endFruit, state: () => FG, lag: fruitLag, seg: segDist, volley: fruitVolley, step: fruitStep, lost: fruitLost };
+    window.trainFruit = { start: startFruit, frame: fruitFrame, end: endFruit, state: () => FG, lag: fruitLag, seg: segDist, effW: fruitEffW, bySizeText: fruitBySizeText, volley: fruitVolley, step: fruitStep, lost: fruitLost };
     window.trainFeatState = FEAT_ST;
     window.trainUse = USE;
     window.trainSetModel = setModel;

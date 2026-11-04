@@ -210,6 +210,17 @@ def game_rows(gs):
             o['lagMs'] = num(g.get('lagMs'), 0, 1000)
             o['overPx'] = num(g.get('overPx'), 0, 2000)
             o['thr'] = num(g.get('thr'), 0, 5000)
+            o['effW'] = num(g.get('effW'), 0, 2000)
+            o['missPx'] = num(g.get('missPx'), 0, 2000)
+            bs = g.get('bySize')
+            if isinstance(bs, dict):
+                o['bySize'] = {}
+                for z, d in bs.items():
+                    if z not in ('small', 'medium', 'large') or not isinstance(d, dict):
+                        return None
+                    o['bySize'][z] = {n: num(d.get(n), 0, 1e5) for n in ('n', 'hit', 'miss')}
+            else:
+                o['bySize'] = None
             sw = g.get('swipe')
             o['swipe'] = {k: num(sw.get(k), 50, 6000) for k in ('slow', 'mid', 'fast')} if isinstance(sw, dict) else None
             o['gentle'] = bool(g.get('gentle'))
