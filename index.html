@@ -616,7 +616,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.17, 3 Nov 2026">v0.17</div>
+<div id="ver" title="Hand control training, version 0.18, 3 Nov 2026">v0.18</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -635,7 +635,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.17 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.18 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1298,6 +1298,7 @@
     // settle on it, and whether tracking drops out mid-move. Lag tunes the filter's speed response; overshoot and settling
     // tune the pull onto buttons.
     const NF = () => (PLAN.length > 1 ? 4 : 5);
+    const FR = 60; // the ring's radius: 120 px across
     function startFast() {
       R.aimRes = S.res; // the targets' results, for the profile
       step = 'fast';
@@ -1313,7 +1314,8 @@
       const x = S.side ? innerWidth * (0.78 + Math.random() * 0.1) : innerWidth * (0.12 + Math.random() * 0.1),
         y = innerHeight * (0.25 + Math.random() * 0.5);
       S.el = tgt('corner', x, y, '');
-      S.el.style.width = S.el.style.height = '70px';
+      S.el.style.width = S.el.style.height = FR * 2 + 'px';
+      S.el.style.borderWidth = '4px';
       S.c = { t0: performance.now(), x, y, last: null, vmax: 0, lagAtPeak: 0, arrive: 0, over: 0, onSince: 0, drops: 0, startD: null };
       prompt(`${handWord()}, fast move ${S.n + 1} of ${NF()}: <b>dart</b> to the ring as quickly as is comfortable, and <b>stop</b> on it`, 'Hold still on the ring for a moment. No pinch needed. Go easy if anything hurts.');
     }
@@ -1330,9 +1332,9 @@
         }
       }
       c.last = { t, rx: f.rx, ry: f.ry };
-      if (!c.arrive && d < 45) c.arrive = t;
+      if (!c.arrive && d < FR + 10) c.arrive = t;
       if (c.arrive && t - c.arrive < 800) c.over = Math.max(c.over, d); // how far it went past after first reaching the ring
-      if (d < 35) {
+      if (d < FR) {
         if (!c.onSince) c.onSince = t;
         S.el.classList.add('got');
         if (t - c.onSince > 350) {
@@ -1368,7 +1370,7 @@
       return {
         peak: m((c) => c.vmax),
         lag: m((c) => c.lagAtPeak),
-        over: m((c) => (c.arrive ? Math.max(0, c.over - 35) : null)),
+        over: m((c) => (c.arrive ? Math.max(0, c.over - FR) : null)),
         settle: m((c) => c.settle),
         drops: r.reduce((a, c) => a + c.drops, 0),
         timeouts: r.filter((c) => c.timeout).length,
