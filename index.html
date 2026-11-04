@@ -718,6 +718,15 @@
     color: var(--muted);
     overflow-wrap: anywhere;
   }
+  .modeSeg { display: flex; gap: 10px; margin-bottom: 14px; }
+  .modeBtn { flex: 1; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left; min-height: 60px; padding: 12px 14px; border-radius: 12px; border: 2px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
+  .modeBtn small { color: var(--muted); font-size: 0.8rem; }
+  .modeBtn.on { border-color: var(--gold); background: rgba(255, 216, 138, 0.12); }
+  .modeBtn:disabled { opacity: 0.5; cursor: default; }
+  .linklike { background: none; border: none; color: var(--blue); text-decoration: underline; cursor: pointer; padding: 0; font: inherit; }
+  #gMode { font-weight: 600; }
+  #fruitPause { position: fixed; top: max(12px, env(safe-area-inset-top, 0px)); left: max(12px, env(safe-area-inset-left, 0px)); z-index: 8; width: 48px; height: 48px; border-radius: 999px; border: 1px solid var(--line); background: rgba(7, 11, 20, 0.8); color: #fff; font-size: 1.2rem; cursor: pointer; }
+  #fruitPauseOv { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; background: rgba(7, 11, 20, 0.72); color: #fff; text-align: center; font-size: 1.3rem; }
   .aimOpt .aimBest {
     color: var(--good);
     font-weight: 700;
@@ -1010,13 +1019,15 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.41, 4 Nov 2026">v0.41</div>
+<div id="ver" title="Hand control training, version 0.42, 4 Nov 2026">v0.42</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
-<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
+<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window."><input id="camSkel" type="checkbox" checked /> 👋 hand</label></div>
 <div id="cur" hidden></div>
 <div id="hudChips"><div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div><div id="distChip" hidden aria-live="polite" title="How far you sit from the camera, from the gap between your pupils (only the number is kept)">📏 <b id="distWord">–</b></div></div>
-<div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span><i id="gComboL">Combo</i> <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span><i id="gBestL">Best</i> <b id="gBest">0</b></span></div>
+<button type="button" id="fruitPause" hidden title="Pause (Space)">⏸</button>
+<div id="fruitPauseOv" hidden><div><b>Paused</b><br />Press Space (or ▶) to resume.</div></div>
+<div id="gameHud" hidden aria-live="off"><span id="gMode" title="Game mode uses your best aim; Test mode tries aims in turn to find what works"></span><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span><i id="gComboL">Combo</i> <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span><i id="gBestL">Best</i> <b id="gBest">0</b></span></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
   <p id="askQ"></p>
@@ -1031,7 +1042,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.41 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.42 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1047,6 +1058,7 @@
     <a class="tile btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/"><span class="ti" aria-hidden="true">←</span><span class="tt"><b>Back to the atlas</b><small>Your settings go with you</small></span></a>
   </div>
   <p class="muted" id="introMsg"></p>
+  <p class="muted" id="homeAim" hidden>Aim: <b id="homeAimWord">–</b> <button type="button" id="homeAimSwitch" class="linklike">switch</button></p>
   <details>
     <summary>What the training does</summary>
     <ol>
@@ -1166,7 +1178,7 @@
   <h2>🍉 Fruit sliced</h2>
   <dl id="fruitSum"></dl>
   <p id="fruitHint" hidden style="color:var(--gold);font-weight:600">✋ Hands work here too: move onto a button and pinch. Pinch 🍉 Play again for a new round.</p>
-  <p class="muted">Kept in this browser only. The fruit game measures fast movement: how fast your swipes are, how often a swipe cuts something, how far the cursor trails your hand while it moves fast and how far it runs past where your hand stopped, and how often the camera loses your hand mid-swipe. It doesn't change your settings. It pauses while your hand rests below the waist line.</p>
+  <p class="muted">Kept in this browser only. The fruit game measures fast movement: how fast your swipes are, how often a swipe cuts something, how far the cursor trails your hand while it moves fast and how far it runs past where your hand stopped, and how often the camera loses your hand mid-swipe. It doesn't change your settings. Press Space to pause it.</p>
   <div class="row">
     <button type="button" class="primary" id="fruitAgain">🍉 Play again</button>
     <button type="button" id="fruitAim">🎯 Choose your aim</button>
@@ -1247,7 +1259,7 @@
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
     const KEY = 'atlasHandAssist',
       FORMAT = 'planetary-atlas-hand-profile';
-    const APP_VER = '0.41'; // logged with each game round, so a change of rules can be told apart in the history
+    const APP_VER = '0.42'; // logged with each game round, so a change of rules can be told apart in the history
     const BASE = { snap: 28, minCut: 0.8, beta: 3, pOn: 0.3, pOff: 0.48 },
       BASE_REACH = { x0: 0.22, xs: 0.56, y0: 0.18, ys: 0.52 },
       BASE_REACH_NOW = Object.assign({}, BASE_REACH); // the default box, adjusted by your answers
@@ -1581,6 +1593,36 @@
       },
     };
     const MODEL_IDS = Object.keys(HAND_MODELS);
+    // ---- the live hand skeleton, drawn on the webcam window so you can see you're tracked. The 21 MediaPipe points and the
+    // bones between them; fingertips in gold. Raw (unmirrored) coordinates, because the window is flipped by CSS to match you.
+    const HAND_BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+    const FINGERTIPS = [4, 8, 12, 16, 20];
+    let showSkel = true;
+    try { showSkel = localStorage.getItem('trainSkel') !== '0'; } catch (e) {}
+    let skelPts = 0; // the number of points drawn last frame, for tests
+    function drawSkeleton(x, L, cv, dim) {
+      if (!L || !L.length) return;
+      x.save();
+      x.lineWidth = Math.max(2, cv.width / 220);
+      x.strokeStyle = dim ? 'rgba(160, 170, 185, 0.5)' : 'rgba(127, 200, 255, 0.85)';
+      x.beginPath();
+      for (const [a, b] of HAND_BONES) {
+        if (!L[a] || !L[b]) continue;
+        x.moveTo(L[a].x * cv.width, L[a].y * cv.height);
+        x.lineTo(L[b].x * cv.width, L[b].y * cv.height);
+      }
+      x.stroke();
+      const r = Math.max(3, cv.width / 150);
+      L.forEach((pt, i) => {
+        const tip = FINGERTIPS.includes(i);
+        x.fillStyle = dim ? 'rgba(160, 170, 185, 0.55)' : tip ? 'rgba(255, 216, 138, 0.95)' : 'rgba(127, 200, 255, 0.9)';
+        x.beginPath();
+        x.arc(pt.x * cv.width, pt.y * cv.height, tip ? r * 1.4 : r, 0, 7);
+        x.fill();
+      });
+      x.restore();
+      skelPts += L.length;
+    }
     // ---- features on trial: candidate improvements, each behind a flag that is off by default (so the page behaves
     // exactly as before when nothing is on). The games switch them on and off at random, round by round, in a balanced
     // way, and the comparison page estimates each one's effect and says which are worth putting into the atlas.
@@ -3445,6 +3487,11 @@
         return v.length ? v.reduce((p, q) => p + q, 0) / v.length : null;
       };
       const last = (a, n) => a.slice(-n);
+      const meanOf = (arr, idx) => {
+        if (!arr) return null;
+        const v = idx.map((i) => arr[i]).filter((x) => x != null && isFinite(x));
+        return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+      };
       const fmt = (v, kind) => (v == null ? '–' : kind === '%' ? Math.round(v * 100) + '%' : kind === 's' ? (v / 1000).toFixed(1) + ' s' : kind === 'x' ? v.toFixed(2) : kind === 'i' ? String(Math.round(v)) : v.toFixed(1));
       const rows = [
         ['Sessions', (a) => a.length, 'n'],
@@ -3458,8 +3505,8 @@
         ['Fast move: overshoot (px)', (a) => avg(last(a, 5), (x) => x.fastOver), '1'],
         ['Fast move: time to settle', (a) => avg(last(a, 5), (x) => x.fastSettle), 's'],
         ['Comfortable reach (share of view)', (a) => avg(last(a, 5), (x) => x.reachArea), '%'],
-        ['Reaching up: top corners, how easy 1–7', (a) => avg(last(a, 5), (x) => (x.cornerEase ? (x.cornerEase[0] + x.cornerEase[1]) / 2 : null)), '1'],
-        ['Reaching down: bottom corners, how easy 1–7', (a) => avg(last(a, 5), (x) => (x.cornerEase ? (x.cornerEase[2] + x.cornerEase[3]) / 2 : null)), '1'],
+        ['Reaching up: top corners, how easy 1–7', (a) => avg(last(a, 5), (x) => meanOf(x.cornerEase, [0, 1])), '1'],
+        ['Reaching down: bottom corners, how easy 1–7', (a) => avg(last(a, 5), (x) => meanOf(x.cornerEase, [2, 3])), '1'],
         ['Pop game: rounds', (a, g) => g.length, 'n'],
         ['Pop game: best score', (a, g) => (g.length ? Math.max(...g.map((x) => x.score)) : null), 'i'],
         ['Pop game: pinch accuracy', (a, g) => avg(last(g, 5), (x) => x.accuracy), '%'],
@@ -3869,10 +3916,45 @@
         if (id) p.hands[h].mapping = id;
         else delete p.hands[h].mapping;
         localStorage.setItem(KEY, JSON.stringify(p));
+        writeAim(h);
         return true;
       } catch (e) {
         return false;
       }
+    }
+    // Game mode ('fixed') uses your best aim; Test mode ('trial', the default) tries them in turn to find what works and
+    // helps the project. The mode is kept per hand. Picking an option below switches you to Game mode.
+    function getAimMode(h) {
+      const q = profileHand(h);
+      return q && q.aimMode === 'fixed' ? 'fixed' : 'trial';
+    }
+    // the model + camera the fixed (Game) mode uses: your lock, else your best-so-far, else the safe default
+    function resolveFixed(h) {
+      const q = profileHand(h) || {},
+        camOk = mappingsFor(q);
+      const model = (q.model && HAND_MODELS[q.model] && q.model) || aimBest(h, 'model') || 'centre';
+      let mapping = (q.mapping && MAPPINGS[q.mapping] && q.mapping) || aimBest(h, 'mapping') || 'flat';
+      if (!camOk.includes(mapping)) mapping = 'flat';
+      return { model, mapping };
+    }
+    // write the resolved choice into the profile so the atlas can read it
+    function writeAim(h) {
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!p || !p.hands || !p.hands[h]) return;
+        const mode = p.hands[h].aimMode === 'fixed' ? 'fixed' : 'trial';
+        p.hands[h].aim = mode === 'fixed' ? Object.assign({ mode: 'fixed' }, resolveFixed(h)) : { mode: 'trial', model: null, mapping: null };
+        localStorage.setItem(KEY, JSON.stringify(p));
+      } catch (e) {}
+    }
+    function setAimMode(h, mode) {
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!p || !p.hands || !p.hands[h]) return;
+        p.hands[h].aimMode = mode === 'fixed' ? 'fixed' : 'trial';
+        localStorage.setItem(KEY, JSON.stringify(p));
+        writeAim(h);
+      } catch (e) {}
     }
     let aimFrom = 'intro',
       aimHand = 'Right';
@@ -3918,7 +4000,12 @@
         </button>`;
       };
       const enough = (kind) => (kind === 'model' ? MODEL_IDS : MAPPING_IDS).some((id) => aimStats(h, kind, id).popRounds >= 3);
+      const mode = getAimMode(h);
       $('aimBody').innerHTML = `
+        <div class="modeSeg" role="group" aria-label="Aim mode">
+          <button type="button" class="modeBtn${mode === 'fixed' ? ' on' : ''}" data-mode="fixed" aria-pressed="${mode === 'fixed'}"${q ? '' : ' disabled'}><b>🎮 Game mode</b><small>Uses your best aim so the game feels its best.</small></button>
+          <button type="button" class="modeBtn${mode === 'trial' ? ' on' : ''}" data-mode="trial" aria-pressed="${mode === 'trial'}"${q ? '' : ' disabled'}><b>🔬 Test mode</b><small>Tries different aims in turn to find what works best for you (and helps the project).</small></button>
+        </div>
         <div class="aimList"><button type="button" class="aimOpt${!lockedM && !lockedP ? ' sel' : ''}" data-kind="trial" aria-pressed="${!lockedM && !lockedP}"${q ? '' : ' disabled'}>
           <span class="aimTop"><b>🎲 Keep comparing</b></span><small>Try them in turn, so each one gets a fair number of rounds.</small></button></div>
         <h3>How the cursor follows your hand</h3>
@@ -3927,9 +4014,18 @@
         <h3>How the camera picture becomes the screen</h3>
         ${enough('mapping') ? '' : '<p class="muted">Play a few more rounds to compare: an option needs 3 pop rounds to be marked best.</p>'}
         <div class="aimList">${MAPPING_IDS.map((id) => opt('mapping', id)).join('')}</div>`;
-      $('aimNow').textContent = !q
-        ? `Your ${h.toLowerCase()} hand isn’t trained yet: train it first to choose. The percentages still show.`
-        : `Now: ${lockedM ? aimName('model', lockedM) : 'taking turns'} for the cursor, ${lockedP ? aimName('mapping', lockedP) : 'taking turns'} for the camera.`;
+      if (!q) $('aimNow').textContent = `Your ${h.toLowerCase()} hand isn’t trained yet: train it first to choose. The percentages still show.`;
+      else if (mode === 'fixed') {
+        const r = resolveFixed(h);
+        $('aimNow').innerHTML = `🎮 <b>Game mode</b>: using ${aimName('model', r.model)} + ${aimName('mapping', r.mapping)}.`;
+      } else $('aimNow').innerHTML = `🔬 <b>Test mode</b>: taking turns to find what works best (and share it).`;
+      $('aimBody').querySelectorAll('.modeBtn').forEach((b) => {
+        b.onclick = () => {
+          setAimMode(h, b.dataset.mode);
+          if (b.dataset.mode === 'trial') { lockModel(h, ''); lockMapping(h, ''); }
+          showAim();
+        };
+      });
       $('aimBody').querySelectorAll('.aimOpt').forEach((b) => {
         b.onclick = () => {
           const kind = b.dataset.kind,
@@ -3937,8 +4033,12 @@
           if (kind === 'trial') {
             lockModel(h, '');
             lockMapping(h, '');
-          } else if (kind === 'model') lockModel(h, id);
-          else lockMapping(h, id);
+            setAimMode(h, 'trial');
+          } else {
+            if (kind === 'model') lockModel(h, id);
+            else lockMapping(h, id);
+            setAimMode(h, 'fixed');
+          }
           showAim();
         };
       });
@@ -3954,6 +4054,7 @@
     $('aimBack').onclick = () => {
       $('aim').hidden = true;
       $(aimFrom).hidden = false;
+      refreshHomeAim();
     };
     // the end card says so when the option just played has become the best for that hand
     function aimNews(h, st, before) {
@@ -3999,6 +4100,11 @@
     window.addEventListener('hashchange', () => location.hash === '#compare' && showCompare());
     let cTimes = [];
     document.addEventListener('keydown', (e) => {
+      if ((e.key === ' ' || e.code === 'Space') && step === 'fruit' && FG) {
+        e.preventDefault();
+        fruitSetPause(!FG.spacePaused);
+        return;
+      }
       if (e.key !== 'c' && e.key !== 'C') return;
       if (step && step !== 'done' && step !== 'gameover') return;
       const n = performance.now();
@@ -4052,6 +4158,8 @@
           fastSettle: R.fast && R.fast.settle != null ? Math.round(R.fast.settle) : null,
         },
         trained: new Date().toISOString(),
+        aimMode: 'trial',
+        aim: { mode: 'trial', model: null, mapping: null },
       };
       logSession(HAND, res);
       const next = PLAN[PLAN.indexOf(HAND) + 1];
@@ -4277,7 +4385,9 @@
       try {
         p = JSON.parse(localStorage.getItem(KEY) || 'null');
       } catch (e) {}
-      const q = p ? (p.hands && p.hands[h]) || (!p.hands && p.k ? p : null) : null;
+      let q = p ? (p.hands && p.hands[h]) || (!p.hands && p.k ? p : null) : null;
+      // a hand counts as fitted only if it was actually trained here: a bare entry (e.g. written by the atlas) is ignored
+      if (q && !(q.trained || (!p.hands && p.trained))) q = null;
       curSnap = q && q.k && q.k.snap ? q.k.snap : BASE.snap;
       curHold = q && q.k && q.k.lens ? q.k.lens : holdFor(q && q.measured && q.measured.wobble);
       FEAT_ST.dz = Math.max(12, 2.5 * ((q && q.measured && q.measured.wobble) || 0));
@@ -4738,24 +4848,49 @@
     const featureCode = (h, ids) => (ids.length ? ids.map((id) => featureLetters(h)[id]).sort().join('') : '0');
     // ---- the model trial, shared by both games: which model this round plays, its features and camera model
     function startModelRound(st, h, t, kind) {
-      const pick = pickModel(h);
-      st.model = pick.id;
-      st.modelLocked = pick.locked;
       st.choices = {};
       st.episodes = [];
       st.epi = null;
       st.use = {};
-      const mp_ = pickMapping(h);
-      st.mapping = mp_.id;
-      st.mappingLocked = mp_.locked;
-      st.mappingUncal = mp_.uncal;
-      setMapping(mp_.id);
-      const fp_ = pickFeatures(h, kind || 'game');
-      st.features = fp_.ids;
-      st.featuresLocked = fp_.locked;
-      setFeatures(st.features);
-      setModel(pick.id, t);
-      $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '') + ' · ' + featureCode(h, st.features) + (fp_.locked ? ' 🔒' : '') + ' · ' + mappingTag(h, mp_.id) + (mp_.locked ? ' 🔒' : '');
+      st.aimMode = getAimMode(h);
+      if (st.aimMode === 'fixed') {
+        // Game mode: your best aim, named plainly, no trial tweaks
+        const r = resolveFixed(h);
+        st.model = r.model;
+        st.modelLocked = true;
+        st.mapping = r.mapping;
+        st.mappingLocked = true;
+        st.mappingUncal = !mappingsFor(profileHand(h)).includes(r.mapping);
+        st.features = [];
+        st.featuresLocked = true;
+        setMapping(r.mapping);
+        setFeatures([]);
+        setModel(r.model, t);
+        $('gMode').textContent = '🎮 Game';
+        $('gModel').textContent = HAND_MODELS[r.model].label + ' · ' + MAPPINGS[r.mapping].label;
+      } else {
+        // Test mode: the balanced trial, with neutral letters
+        const pick = pickModel(h);
+        st.model = pick.id;
+        st.modelLocked = pick.locked;
+        const mp_ = pickMapping(h);
+        st.mapping = mp_.id;
+        st.mappingLocked = mp_.locked;
+        st.mappingUncal = mp_.uncal;
+        setMapping(mp_.id);
+        const fp_ = pickFeatures(h, kind || 'game');
+        st.features = fp_.ids;
+        st.featuresLocked = fp_.locked;
+        setFeatures(st.features);
+        setModel(pick.id, t);
+        $('gMode').textContent = '🔬 Test';
+        $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '') + ' · ' + featureCode(h, st.features) + (fp_.locked ? ' 🔒' : '') + ' · ' + mappingTag(h, mp_.id) + (mp_.locked ? ' 🔒' : '');
+      }
+      // the opening prompt says which mode you're in
+      if (!$('prompt').hidden) {
+        const sub = $('prompt').querySelector('small');
+        if (sub) sub.textContent = (st.aimMode === 'fixed' ? '🎮 Game mode: using your best aim. ' : '🔬 Test mode: trying a different aim this round. ') + sub.textContent;
+      }
     }
     // the round is over: the features go back off (the training steps and the end cards run plain), and the use counts
     // are kept in the profile
@@ -5184,11 +5319,13 @@
       const cv = document.createElement('canvas');
       cv.id = 'fruitCv';
       document.body.appendChild(cv);
-      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1 };
+      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false };
+      $('fruitPause').hidden = false;
+      $('fruitPauseOv').hidden = true;
       fruitSetup(HAND);
       step = 'fruit';
       S = {};
-      prompt('🍉 Swipe through the fruit', 'A quick swipe slices it, no pinch needed. Let the barrels pass. Rest your hand below the waist line to pause.');
+      prompt('🍉 Swipe through the fruit', 'A quick swipe slices it, no pinch needed. Let the barrels pass. Press Space to pause.');
       fruitHud();
       requestAnimationFrame(fruitTick);
     }
@@ -5198,8 +5335,16 @@
       $('gCombo').textContent = FG.sliced;
       $('gBest').textContent = FG.barrelsHit;
     }
-    function fruitPaused(now) {
-      return restShown || !FG.lastHand || now - FG.lastHand > 400;
+    // the fruit game is never paused by a resting hand (you slash in and out and drop your hand mid-swing): only Space,
+    // or the on-screen ⏸ button, pauses it; the clock keeps running otherwise.
+    function fruitPaused() {
+      return !!(FG && FG.spacePaused);
+    }
+    function fruitSetPause(on) {
+      if (!FG) return;
+      FG.spacePaused = !!on;
+      $('fruitPause').textContent = FG.spacePaused ? '▶' : '⏸';
+      $('fruitPauseOv').hidden = !FG.spacePaused;
     }
     // the warm-up before a round: swipe across a band through the middle of the screen three times slowly, three times at
     // a comfortable speed and three times as fast as you can. The median top speed of each level is kept for the hand.
@@ -5260,7 +5405,7 @@
       FG.grace = true; // the tail of the last warm-up swipe is not a slice
       fruitSetup(FG.hand || HAND);
       FG.last = performance.now();
-      prompt('🍉 Swipe through the fruit', `A swipe needs ${FG.thr} px/s now. Let the barrels pass. Rest your hand below the waist line to pause.`);
+      prompt('🍉 Swipe through the fruit', `A swipe needs ${FG.thr} px/s now. Let the barrels pass. Press Space to pause.`);
       clearTimeout(FG.pt);
       FG.pt = setTimeout(() => step === 'fruit' && ($('prompt').hidden = true), 2500);
     }
@@ -5619,6 +5764,8 @@
       if (FG.swipe) FG.swipe.ser.push([t, rx, ry, f.x, f.y]);
     }
     function endFruit() {
+      $('fruitPause').hidden = true;
+      $('fruitPauseOv').hidden = true;
       step = 'gameover';
       if (FG.swipe) fruitEndSwipe(FG.prev ? FG.prev.t : 0);
       if (FG.post) fruitClosePost();
@@ -5889,7 +6036,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.41',
+        app: 'v0.42',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -6191,6 +6338,31 @@
       camMove = localStorage.getItem('trainCamMove') !== '0';
     } catch (e) {}
     $('camMove').checked = camMove;
+    function refreshHomeAim() {
+      let p = null;
+      try { p = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+      const h = p && p.hands && p.hands.Right ? 'Right' : p && p.hands && p.hands.Left ? 'Left' : null;
+      if (!h) { $('homeAim').hidden = true; return; }
+      const mode = getAimMode(h);
+      $('homeAim').hidden = false;
+      $('homeAimWord').textContent = mode === 'fixed' ? '🎮 Game mode' : '🔬 Test mode';
+    }
+    $('homeAimSwitch').onclick = () => {
+      let p = null;
+      try { p = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+      const h = p && p.hands && p.hands.Right ? 'Right' : p && p.hands && p.hands.Left ? 'Left' : null;
+      if (!h) return;
+      const mode = getAimMode(h) === 'fixed' ? 'trial' : 'fixed';
+      setAimMode(h, mode);
+      if (mode === 'trial') { lockModel(h, ''); lockMapping(h, ''); }
+      refreshHomeAim();
+    };
+    refreshHomeAim();
+    $('camSkel').checked = showSkel;
+    $('camSkel').onchange = (e) => {
+      showSkel = e.target.checked;
+      try { localStorage.setItem('trainSkel', showSkel ? '1' : '0'); } catch (e2) {}
+    };
     $('camMove').onchange = (e) => {
       camMove = e.target.checked;
       try {
@@ -6357,15 +6529,19 @@
       x.fillStyle = 'rgba(127, 200, 255, 0.12)';
       x.fillRect(0, WAIST * cv.height, cv.width, cv.height * (1 - WAIST));
       x.restore();
+      // the skeleton: on by default while training (it shows you're tracked), and following the toggle elsewhere
+      const training = step && step !== 'done' && step !== 'game' && step !== 'carry' && step !== 'fruit' && step !== 'gameover';
+      const wantSkel = showSkel || training;
+      skelPts = 0;
       all.forEach((h) => {
         if (h === pickd) return;
-        x.fillStyle = 'rgba(160, 170, 185, 0.45)'; // the ignored hand, dimmed
-        h.L.forEach((p) => {
-          x.beginPath();
-          x.arc(p.x * cv.width, p.y * cv.height, 3, 0, 7);
-          x.fill();
-        });
+        if (wantSkel) drawSkeleton(x, h.L, cv, true); // the ignored hand, dimmed
+        else {
+          x.fillStyle = 'rgba(160, 170, 185, 0.45)';
+          h.L.forEach((p) => { x.beginPath(); x.arc(p.x * cv.width, p.y * cv.height, 3, 0, 7); x.fill(); });
+        }
       });
+      if (wantSkel && pickd) drawSkeleton(x, pickd.L, cv, false);
       REC.nHands = all.length;
       // the room's light, four times a second (with the hand's box, in camera coordinates, when there is a hand)
       if (now - LIGHT.last >= 250) {
@@ -6380,6 +6556,15 @@
       }
       if (!L) {
         $('cur').hidden = true;
+        if ((showSkel || (step && step !== 'done')) && !all.length && step) {
+          const x2 = cv.getContext('2d');
+          x2.save();
+          x2.fillStyle = 'rgba(255, 180, 180, 0.9)';
+          x2.font = `${Math.round(cv.width / 16)}px sans-serif`;
+          x2.textAlign = 'center';
+          x2.fillText('no hand', cv.width / 2, cv.height / 2);
+          x2.restore();
+        }
         const rest = all.some(resting);
         if (step === 'game' || step === 'carry' || step === 'fruit') trackTick(false, rest, null);
         if (step === 'fruit' && FG && !rest) fruitLost(now);
