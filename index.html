@@ -409,7 +409,8 @@
   #gameEnd .row button,
   #carryEnd .row button,
   #share .row button,
-  #shareGamesLbl {
+  #shareGamesLbl,
+  #shareOldLbl {
     min-height: 60px;
     font-size: 1.05rem;
     padding-inline: 20px;
@@ -417,7 +418,8 @@
   #gameEnd .row button.hot,
   #carryEnd .row button.hot,
   #share .row button.hot,
-  #shareGamesLbl.hot {
+  #shareGamesLbl.hot,
+  #shareOldLbl.hot {
     outline: 3px solid var(--gold);
     outline-offset: 2px;
   }
@@ -427,7 +429,8 @@
   #gameHud i {
     font-style: normal;
   }
-  #shareGamesLbl {
+  #shareGamesLbl,
+  #shareOldLbl {
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -437,7 +440,8 @@
     margin-block: 8px;
     cursor: pointer;
   }
-  #shareGamesLbl input {
+  #shareGamesLbl input,
+  #shareOldLbl input {
     width: 24px;
     height: 24px;
   }
@@ -1191,6 +1195,7 @@
     <span>It is posted as a <b>public issue</b> on the project's GitHub page under your GitHub account, so your GitHub username will be attached to it and anyone can read it. You need a GitHub account (13 or older), and you press the final Submit button on GitHub yourself.</span>
     <span>Students under 13, or anyone at a school, should check with a teacher or parent first. If you'd rather not, just go back: nothing is sent unless you submit the issue.</span>
   </div>
+  <label id="shareOldLbl" class="shareChk"><input type="checkbox" id="shareOld"> Include rounds I’ve shared before</label>
   <label id="shareGamesLbl"><input type="checkbox" id="shareGames" checked> Include my last game rounds (scores and precision numbers only)</label>
   <pre id="payload"></pre>
   <div class="row">
@@ -4111,16 +4116,21 @@
         p = JSON.parse(localStorage.getItem(KEY) || 'null');
       } catch (e) {}
       if (!p) return null;
+      // the 3D pinch thresholds (the atlas's world-space pinch), so the shared pinch defaults can form
+      const kW3 = (w) => (w && isFinite(w.pOn) && isFinite(w.pOff) ? { pOn: Math.round(w.pOn * 1000) / 1000, pOff: Math.round(w.pOff * 1000) / 1000 } : null),
+        topHand = p.hands ? Object.values(p.hands).find((q) => q && JSON.stringify(q.k) === JSON.stringify(p.k)) || Object.values(p.hands)[0] : null,
+        topKW = kW3(p.kW || (topHand && topHand.kW));
       const ua = navigator.userAgent,
         browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : 'other';
       return {
         format: 'hand-training-result',
         version: 1,
         k: p.k,
+        kW: topKW,
         reach: p.reach ? { xs: +p.reach.xs.toFixed(3), ys: +p.reach.ys.toFixed(3) } : null,
         hands: p.hands
           ? Object.fromEntries(
-              Object.entries(p.hands).map(([h, q]) => [h, { k: q.k, reach: q.reach ? { xs: +q.reach.xs.toFixed(3), ys: +q.reach.ys.toFixed(3) } : null, ratings: q.ratings, measured: q.measured, cam: q.cam ? { dArm: q.cam.dArm ?? null, palmCm: q.cam.palmCm ?? null, sphereR: q.cam.sphereR ?? null } : null }]),
+              Object.entries(p.hands).map(([h, q]) => [h, { k: q.k, kW: kW3(q.kW), reach: q.reach ? { xs: +q.reach.xs.toFixed(3), ys: +q.reach.ys.toFixed(3) } : null, ratings: q.ratings, measured: q.measured, cam: q.cam ? { dArm: q.cam.dArm ?? null, palmCm: q.cam.palmCm ?? null, sphereR: q.cam.sphereR ?? null } : null }]),
             )
           : null,
         answers: p.answers,
@@ -4130,13 +4140,23 @@
         browser,
         touch: navigator.maxTouchPoints > 0,
         when: (p.trained || '').slice(0, 10),
-        games: $('shareGames').checked ? gameRows(8) : undefined,
+        games: $('shareGames').checked ? gameRows(8, $('shareOld').checked ? '' : lastShareT()) : undefined,
       };
     }
     // the last game rounds, reduced to known numbers only (no camera data, no free text)
     const r3n = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v * 1000) / 1000 : null);
-    function gameRows(n) {
-      const rows = history().filter((x) => x.kind === 'game' || x.kind === 'carry').slice(-n);
+    // when the GitHub form was last opened: rounds from before that were shared then, so they aren't sent again
+    function lastShareT() {
+      try {
+        return localStorage.getItem('lastShareT') || '';
+      } catch (e) {
+        return '';
+      }
+    }
+    function gameRows(n, since) {
+      const rows = history()
+        .filter((x) => (x.kind === 'game' || x.kind === 'carry') && (!since || String(x.t || '') > since))
+        .slice(-n);
       return rows.map((x) => {
         const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, mapping: x.mapping ? String(x.mapping).slice(0, 8) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null, features: Array.isArray(x.features) ? x.features.slice(0, 12).map((id) => String(id).slice(0, 12)) : [], use: x.use && typeof x.use === 'object' ? Object.fromEntries(Object.entries(x.use).slice(0, 16).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
         o.light = x.light && typeof x.light === 'object' ? Object.fromEntries(LIGHT_KEYS.map((k) => [k, r3n(x.light[k])])) : null;
@@ -4168,7 +4188,7 @@
     $('shareBtn').onclick = () => openShare('done');
     $('gameShare').onclick = () => openShare('gameEnd');
     $('carryShare').onclick = () => openShare('carryEnd');
-    $('shareGames').onchange = () => {
+    $('shareGames').onchange = $('shareOld').onchange = () => {
       const p = payload();
       if (p) $('payload').textContent = JSON.stringify(p, null, 1);
     };
@@ -4191,6 +4211,11 @@
         return;
       }
       window.open(u, '_blank', 'noopener');
+      // the rounds in this share count as shared: the next share sends only newer ones (unless asked to include them)
+      if (p.games && p.games.length)
+        try {
+          localStorage.setItem('lastShareT', new Date().toISOString());
+        } catch (e) {}
       $('shareMsg').textContent = 'The GitHub form opened in a new tab with the numbers filled in. Check them, then press “Submit new issue” there. Nothing is sent until you do.';
     };
     $('reset').onclick = () => {
@@ -5159,7 +5184,7 @@
     function cardButtons() {
       const card = MENU_CARDS.map((id) => $(id)).find((c) => c && !c.hidden);
       if (!card) return [];
-      return [...card.querySelectorAll('button, a.btn, .chips label, #shareGamesLbl')].filter((b) => {
+      return [...card.querySelectorAll('button, a.btn, .chips label, #shareGamesLbl, #shareOldLbl')].filter((b) => {
         if (b.hidden || b.disabled || b.closest('[hidden]')) return false;
         const r = b.getBoundingClientRect();
         return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
@@ -5194,7 +5219,7 @@
       if (!o) return;
       const onShare = !$('share').hidden && (shareFrom === 'gameEnd' || shareFrom === 'carryEnd'),
         endUp = !$('gameEnd').hidden || !$('carryEnd').hidden,
-        ids = onShare ? ['shareGo', 'shareGamesLbl', 'shareBack'] : endUp ? o.btns || ['gameAgain', 'gameAim', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack'] : null,
+        ids = onShare ? ['shareGo', 'shareGamesLbl', 'shareOldLbl', 'shareBack'] : endUp ? o.btns || ['gameAgain', 'gameAim', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack'] : null,
         btns = ids ? ids.map((id) => $(id)).filter((b) => b && !b.hidden) : cardButtons();
       if (!btns.length) return;
       return pressFrame(btns, o, f, t);

@@ -168,6 +168,25 @@ os.makedirs('data', exist_ok=True)
 if any(os.path.exists(f) and any(json.loads(l).get('issue') == rec['issue'] for l in open(f) if l.strip()) for f in (OUT, 'data/archive/results-before-v0.21.jsonl')):
     open('collect_msg.txt', 'w').write('Already stored, thanks.')
     sys.exit(0)
+# the same game round shared again (a later share can repeat earlier rounds): keep only rounds not already stored
+GAME_KEY = ('kind', 'hand', 't', 'score', 'pops', 'deliveries', 'missPress', 'slips')
+
+
+def game_key(g):
+    return tuple(g.get(n) for n in GAME_KEY)
+
+
+skipped = 0
+if rec['games']:
+    seen = set()
+    if os.path.exists(OUT):
+        for l in open(OUT):
+            if l.strip():
+                for g in json.loads(l).get('games') or []:
+                    seen.add(game_key(g))
+    kept = [g for g in rec['games'] if game_key(g) not in seen]
+    skipped = len(rec['games']) - len(kept)
+    rec['games'] = kept or None
 with open(OUT, 'a') as f:
     f.write(json.dumps(rec, separators=(',', ':')) + '\n')
 
@@ -204,5 +223,5 @@ defaults = {
     'results': len(rows),
 }
 json.dump(defaults, open(DEF, 'w'), indent=1)
-open('collect_msg.txt', 'w').write(f"Thank you! Your result is number {len(rows)}. The shared defaults in `data/defaults.json` are updated, and the atlas picks them up within a few minutes. Only the numbers in your JSON block were stored." + (" Your game rounds were included." if rec['games'] else "") + "")
+open('collect_msg.txt', 'w').write(f"Thank you! Your result is number {len(rows)}. The shared defaults in `data/defaults.json` are updated, and the atlas picks them up within a few minutes. Only the numbers in your JSON block were stored." + (" Your game rounds were included." if rec['games'] else "") + (f" {skipped} game round{'s' if skipped != 1 else ''} you had shared before {'were' if skipped != 1 else 'was'} skipped." if skipped else ""))
 print('OK', len(rows))
