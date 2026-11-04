@@ -5,9 +5,9 @@
  "groups": {
   "all": {
    "snap": 72,
-   "minCut": 0.265,
+   "minCut": 0.25,
    "beta": 2.0,
-   "n": 16,
+   "n": 17,
    "n3d": 0
   },
   "shaky": {
@@ -18,5 +18,5 @@
    "n3d": 0
   }
  },
- "results": 16
+ "results": 17
 }
