@@ -422,6 +422,11 @@
   #carryEnd .row button.hot,
   #fruitEnd .row button.hot,
   #share .row button.hot,
+  #share18Lbl.needed {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
   #shareGamesLbl.hot,
   #shareOldLbl.hot {
     outline: 3px solid var(--gold);
@@ -1228,9 +1233,10 @@
   <div class="warnbox">
     <b>What is sent, and where</b>
     <span>Only the numbers below: measurements, your answers, your ratings, and a browser type. If the box is ticked, also your last game rounds (scores, counts and precision numbers). Also three camera calibration numbers per hand (hand-to-face distance, palm length, arm reach, in cm); nothing else about your face. No video, pictures, names or email addresses.</span>
-    <span>It is posted as a <b>public issue</b> on the project's GitHub page under your GitHub account, so your GitHub username will be attached to it and anyone can read it. You need a GitHub account (13 or older), and you press the final Submit button on GitHub yourself.</span>
-    <span>Students under 13, or anyone at a school, should check with a teacher or parent first. If you'd rather not, just go back: nothing is sent unless you submit the issue.</span>
+    <span>It is posted as a <b>public issue</b> on the project's GitHub page under your GitHub account, so your GitHub username will be attached to it and anyone can read it, and you press the final Submit button on GitHub yourself.</span>
+    <span><b>You must be 18 or older to share data.</b> If you'd rather not, just go back: nothing is sent unless you confirm your age below and submit the issue.</span>
   </div>
+  <label id="share18Lbl" class="shareChk"><input type="checkbox" id="share18"> I confirm I am 18 or older</label>
   <label id="shareOldLbl" class="shareChk"><input type="checkbox" id="shareOld"> Include rounds I’ve shared before</label>
   <label id="shareGamesLbl"><input type="checkbox" id="shareGames" checked> Include my last game rounds (scores and precision numbers only)</label>
   <pre id="payload"></pre>
@@ -4215,6 +4221,9 @@
       }
       shareFrom = from;
       $('payload').textContent = JSON.stringify(p, null, 1);
+      $('share18').checked = false; // confirm age each time the share card opens
+      $('share18Lbl').classList.remove('needed');
+      $('shareMsg').textContent = '';
       $(from).hidden = true;
       $('share').hidden = false;
     }
@@ -4226,11 +4235,22 @@
       const p = payload();
       if (p) $('payload').textContent = JSON.stringify(p, null, 1);
     };
+    $('share18').onchange = () => {
+      if ($('share18').checked) {
+        $('share18Lbl').classList.remove('needed');
+        if ($('shareMsg').textContent.startsWith('Please confirm')) $('shareMsg').textContent = '';
+      }
+    };
     $('shareBack').onclick = () => {
       $('share').hidden = true;
       $(shareFrom).hidden = false;
     };
     $('shareGo').onclick = () => {
+      if (!$('share18').checked) {
+        $('shareMsg').textContent = 'Please confirm you are 18 or older before sharing data.';
+        $('share18Lbl').classList.add('needed');
+        return;
+      }
       const p = payload();
       if (!p) return;
       const mkUrl = () => `https://github.com/${REPO}/issues/new?labels=training-result&title=${encodeURIComponent('Training result')}&body=${encodeURIComponent('```json\n' + JSON.stringify(p) + '\n```')}`;
@@ -5805,7 +5825,7 @@
     function cardButtons() {
       const card = MENU_CARDS.map((id) => $(id)).find((c) => c && !c.hidden);
       if (!card) return [];
-      return [...card.querySelectorAll('button, a.btn, .chips label, #shareGamesLbl, #shareOldLbl')].filter((b) => {
+      return [...card.querySelectorAll('button, a.btn, .chips label, #shareGamesLbl, #shareOldLbl, #share18Lbl')].filter((b) => {
         if (b.hidden || b.disabled || b.closest('[hidden]')) return false;
         const r = b.getBoundingClientRect();
         return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
@@ -5840,7 +5860,7 @@
       if (!o) return;
       const onShare = !$('share').hidden && (shareFrom === 'gameEnd' || shareFrom === 'carryEnd' || shareFrom === 'fruitEnd'),
         endUp = !$('gameEnd').hidden || !$('carryEnd').hidden || !$('fruitEnd').hidden,
-        ids = onShare ? ['shareGo', 'shareGamesLbl', 'shareOldLbl', 'shareBack'] : endUp ? o.btns || ['gameAgain', 'gameAim', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack'] : null,
+        ids = onShare ? ['shareGo', 'share18Lbl', 'shareGamesLbl', 'shareOldLbl', 'shareBack'] : endUp ? o.btns || ['gameAgain', 'gameAim', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack'] : null,
         btns = ids ? ids.map((id) => $(id)).filter((b) => b && !b.hidden) : cardButtons();
       if (!btns.length) return;
       return pressFrame(btns, o, f, t);
