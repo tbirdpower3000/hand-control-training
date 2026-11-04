@@ -72,6 +72,11 @@ def game_rows(gs):
         if not isinstance(g, dict) or g.get('kind') not in ('game', 'carry') or g.get('hand') not in ('Right', 'Left'):
             return None
         o = {'kind': g['kind'], 'hand': g['hand'], 't': str(g.get('t', ''))[:10], 'score': num(g.get('score')), 'trained': bool(g.get('trained'))}
+        # which hand model the round used (a short id), and for adaptive rounds how often each was chosen
+        mdl = g.get('model')
+        o['model'] = mdl[:12] if isinstance(mdl, str) and mdl else None
+        ch = g.get('choices')
+        o['choices'] = {str(k)[:12]: int(v) for k, v in list(ch.items())[:8] if isinstance(v, (int, float)) and 0 <= v <= 1e6} if isinstance(ch, dict) else None
         if g['kind'] == 'game':
             for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'tp'):
                 o[n] = num(g.get(n))
