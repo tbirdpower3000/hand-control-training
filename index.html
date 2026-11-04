@@ -840,7 +840,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.37, 4 Nov 2026">v0.37</div>
+<div id="ver" title="Hand control training, version 0.38, 4 Nov 2026">v0.38</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -861,7 +861,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.37 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.38 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -2858,6 +2858,8 @@
         this.raw = null;
         this.prev = new Map(); // each item's centre last frame, to carry the cursor with a moving bubble
         this.pr = [];
+        this.pinchT = null; // when the current pinch began (the closing guard lasts 200 ms of it)
+        this.capKey = null; // the item captured last frame (it keeps the capture until the cursor is clearly outside)
         this.lp = null; // the slow "intent" part of the hand's movement (dispersive hold)
         this.under = null; // which neighbour the hand itself has been sitting on, and since when (neighbour transfer)
       }
@@ -2878,7 +2880,12 @@
         const span = Math.max(36, snap * 1.2);
         this.pr.push([t, f.pr]);
         while (this.pr.length && t - this.pr[0][0] > 150) this.pr.shift();
-        const closing = f.pinch || (this.pr.length > 2 && this.pr[0][1] - f.pr > 0.08);
+        // the fingers closing drag the hand point: hold the cursor harder while that happens, i.e. during the pinch's first
+        // 200 ms or while the pinch ratio is still changing fast (closing, or opening to let go), not for the whole held pinch,
+        // which made a carried disc trail the hand by 60-170 px
+        if (f.pinch && this.pinchT == null) this.pinchT = t;
+        else if (!f.pinch) this.pinchT = null;
+        const closing = (f.pinch && t - this.pinchT < 200) || (this.pr.length > 2 && Math.abs(this.pr[0][1] - f.pr) > 0.08);
         if (!this.p) {
           this.p = [f.x, f.y];
           this.raw = [f.x, f.y];
@@ -3008,6 +3015,13 @@
               cap = it;
               break;
             }
+        // once captured, an item keeps the capture until the cursor is outside it by more than the hand's own wobble
+        // (6-16 px), so a jitter at the edge can't flicker the highlight on and off
+        if (!cap && this.capKey != null) {
+          const was = items.find((it) => it.key === this.capKey);
+          if (was && was.dist(px, py) < Math.max(6, Math.min(16, this.margin || 8))) cap = was;
+        }
+        this.capKey = cap ? cap.key : null;
         if (cap) {
           this.lastCap = cap.key;
           this.lastCapT = t;
@@ -3676,7 +3690,7 @@
         o.light = x.light && typeof x.light === 'object' ? Object.fromEntries(LIGHT_KEYS.map((k) => [k, r3n(x.light[k])])) : null;
         o.track = x.track && typeof x.track === 'object' ? { drop: r3n(x.track.drop), score: r3n(x.track.score), jitter: r3n(x.track.jitter) } : null;
         if (x.kind === 'game') {
-          for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'tp']) o[k] = r3n(x[k]);
+          for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'effWHits', 'tp']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
         } else {
           for (const k of ['deliveries', 'slips', 'saves', 'errPx', 'timeMs', 'eff', 'holdMs']) o[k] = r3n(x[k]);
@@ -3756,6 +3770,7 @@
       curHold = q && q.k && q.k.lens ? q.k.lens : holdFor(q && q.measured && q.measured.wobble);
       FEAT_ST.dz = Math.max(12, 2.5 * ((q && q.measured && q.measured.wobble) || 0));
       FLD.reset();
+      FLD.margin = q && q.measured && q.measured.wobble ? q.measured.wobble : 8; // the capture's exit margin (clamped 6-16 px)
       CAM = q && q.cam && q.cam.reachCm ? q.cam : null;
       if (q && q.k) {
         reach = Object.assign({}, q.reach || BASE_REACH_NOW);
@@ -4113,7 +4128,26 @@
       } catch (e) {}
     }
     // the spread of your pops around the bubbles' centres: effective width = 4.133 × the standard deviation (per axis)
+    // the spread of your pops, from your hits AND your misses. Hits alone understate it for a shaky hand (a pop that
+    // landed wide was a miss, so it never enters the spread): each hit gives its distance from the bubble's centre, and
+    // each miss says only "further out than that bubble's hit radius". The most likely spread under a round normal
+    // scatter is then sigma^2 = (sum of hit distances^2 + sum over misses of hit radius^2) / (2 x hits). effW = 4.133 sigma
+    // (the pointing-study convention, used for throughput)
+    const hitR = (d) => d / 2 + Math.max(14, 40 - d / 2); // a bubble's hit radius, as in gameFrame
+    function effSigma() {
+      const o = G.offs || [];
+      if (o.length < 6) return null;
+      let num = o.reduce((a, p) => a + p[0] * p[0] + p[1] * p[1], 0);
+      const z = G.sz || {};
+      for (const [k, d] of SIZES) if (z[k] && z[k].miss) num += z[k].miss * hitR(d) ** 2;
+      return Math.sqrt(num / (2 * o.length));
+    }
     function effWidth() {
+      const s = effSigma();
+      return s == null ? null : Math.round(4.133 * s);
+    }
+    // the old figure, from hits only, kept in the history for continuity
+    function effWidthHits() {
       const o = G.offs || [];
       if (o.length < 6) return null;
       const mx = o.reduce((a, p) => a + p[0], 0) / o.length,
@@ -4132,9 +4166,10 @@
       return parts.length ? parts.join(' · ') + ' popped' : '–';
     }
     function precisionText() {
-      const we = effWidth();
-      if (we == null) return '–';
-      return `your pops spread over about ${we} px: targets at least that wide are easy for you (the small bubbles are ${SIZES[0][1]} px)`;
+      const s = effSigma();
+      if (s == null) return '–';
+      // a circle 5.07 sigma across holds 96% of pops (4.133 sigma, the effective width, holds 88% of them in two dimensions)
+      return `effective width ${Math.round(4.133 * s)} px, counting misses; you land 96% of pops within a ${Math.round(5.07 * s)} px circle, so targets at least that wide are easy for you (the small bubbles are ${SIZES[0][1]} px)`;
     }
     // ---- the feature trial: each round, every feature is on or off by a balanced draw per hand (a shuffled run of eight
     // rounds with each feature on in exactly four), so after a few rounds on and off can be compared fairly. A fixed set
@@ -4630,7 +4665,7 @@
         lt = lightRoundEnd();
       saveChooser(G, h);
       endTrialRound(G, h);
-      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null });
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), effWHits: effWidthHits(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -4741,7 +4776,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.37',
+        app: 'v0.38',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -5466,6 +5501,7 @@
     window.trainBallistic = ballistic;
     window.trainPress = pressTarget;
     window.trainField = Field;
+    window.trainEffW = () => ({ effW: effWidth(), effWHits: effWidthHits(), text: precisionText() });
     window.trainReplay = showReplay;
     window.trainRecLog = recLog;
   })();
