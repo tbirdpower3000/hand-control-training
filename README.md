@@ -26,7 +26,7 @@ Please read [PRIVACY.md](PRIVACY.md) first. In short: the camera never leaves yo
 
 - `index.html`: the training page. No build step; everything is in this one file. Hand tracking is Google's MediaPipe Hand Landmarker (loaded from jsDelivr; the model from storage.googleapis.com), run entirely in your browser.
 - `scripts/collect.py`, `.github/workflows/collect.yml`: the collector bot.
-- `data/results.jsonl`, `data/defaults.json`: shared results and the defaults built from them.
+- `data/results.jsonl`, `data/defaults.json`: shared results and the defaults built from them. `data/archive/` keeps the first results (before v0.21), which are not used.
 
 ## Credits and licence
 

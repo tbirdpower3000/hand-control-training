@@ -69,7 +69,7 @@ rec = {
 }
 os.makedirs('data', exist_ok=True)
 # the same issue twice (opened and labelled) counts once
-if os.path.exists(OUT) and any(json.loads(l).get('issue') == rec['issue'] for l in open(OUT) if l.strip()):
+if any(os.path.exists(f) and any(json.loads(l).get('issue') == rec['issue'] for l in open(f) if l.strip()) for f in (OUT, 'data/archive/results-before-v0.21.jsonl')):
     open('collect_msg.txt', 'w').write('Already stored, thanks.')
     sys.exit(0)
 with open(OUT, 'a') as f:
