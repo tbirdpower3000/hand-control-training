@@ -10,7 +10,7 @@ OUT = 'data/results.jsonl'
 DEF = 'data/defaults.json'
 
 LIM = {'snap': (28, 72), 'minCut': (0.25, 0.8), 'beta': (1, 3), 'pOn': (0.15, 0.45), 'pOff': (0.3, 0.7)}
-CHOICES = {'hand': {'right', 'left', 'either'}, 'steady': {'steady', 'some', 'shaky'}, 'sit': {'close', 'arm', 'far'}}
+CHOICES = {'hand': {'right', 'left', 'either', 'both'}, 'steady': {'steady', 'some', 'shaky'}, 'sit': {'close', 'arm', 'far'}}
 
 
 def fail(why):
