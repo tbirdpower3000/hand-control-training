@@ -797,7 +797,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.33, 4 Nov 2026">v0.33</div>
+<div id="ver" title="Hand control training, version 0.34, 4 Nov 2026">v0.34</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -817,7 +817,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.33 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.34 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1118,7 +1118,7 @@
         }
         // noise ratio in [0, 1]: how much of the motion is tremor-band rather than deliberate
         const noise = high / (high + low + 1e-12);
-        info = { fs: +fs.toFixed(1), tremorHz: +peakHz.toFixed(1), noise: +noise.toFixed(3) };
+        info = { fs: +fs.toFixed(1), tremorHz: +peakHz.toFixed(1), noise: +noise.toFixed(3), peakShare: +(high > 0 ? peak / high : 0).toFixed(3) };
         // the filter's cutoff scales down with the noise: all deliberate -> 1, mostly tremor -> about a third
         const want = 1 - 0.65 * Math.min(1, noise * 1.6);
         gain += (want - gain) * 0.5;
@@ -1322,6 +1322,150 @@
       },
     };
     const MODEL_IDS = Object.keys(HAND_MODELS);
+    // ---- features on trial: candidate improvements, each behind a flag that is off by default (so the page behaves
+    // exactly as before when nothing is on). The games switch them on and off at random, round by round, in a balanced
+    // way, and the comparison page estimates each one's effect and says which are worth putting into the atlas.
+    // To add one: one object here, and a guard `FON('id')` around its code.
+    const FEATURES = {
+      disp: { id: 'disp', label: 'dispersive hold', area: 'hold', on: false, apply() {} },
+      rim: { id: 'rim', label: 'hold only inside', area: 'hold', on: false, apply() {} },
+      tether: { id: 'tether', label: 'dead-zone tether', area: 'hold', on: false, apply() {} },
+      notch: { id: 'notch', label: 'tremor notch', area: 'filter', on: false, apply() { FEAT_ST.notch = null; } },
+      transfer: { id: 'transfer', label: 'neighbour transfer', area: 'hold', on: false, apply() {} },
+      pinchProj: { id: 'pinchProj', label: 'pinch by projection', area: 'pinch', on: false, apply() {} },
+      chainGate: { id: 'chainGate', label: 'bone-chain gate', area: 'tracking', on: false, apply() { FEAT_ST.gateHeld = 0; } },
+    };
+    const FEATURE_IDS = Object.keys(FEATURES);
+    const FON = (id) => !!(FEATURES[id] && FEATURES[id].on);
+    // state the features keep between frames (learned lengths, the pinch axis, the notch's weights)
+    const FEAT_ST = { dz: 12, notch: null, gateHeld: 0, lastOut: null, lastPr: null, bones: {}, pinchAx: { o: null, c: null, no: 0, nc: 0, oPr: 0, cPr: 0 } };
+    function setFeatures(ids) {
+      ids = Array.isArray(ids) ? ids : [];
+      for (const id of FEATURE_IDS) {
+        const on = ids.includes(id);
+        if (FEATURES[id].on !== on) FEATURES[id].apply(on);
+        FEATURES[id].on = on;
+      }
+    }
+    const USE = {}; // how often each model and feature was actually in play, counted per episode (one target)
+    function useTick(st) {
+      const ids = [MODEL.id, ...FEATURE_IDS.filter(FON)];
+      for (const id of ids) {
+        USE[id] = (USE[id] || 0) + 1;
+        if (st) (st.use = st.use || {})[id] = (st.use[id] || 0) + 1;
+      }
+    }
+    // the bone-chain gate: each finger bone's length (against the palm) hardly changes, so a frame where the index or
+    // thumb bones are suddenly a third longer or shorter is the tracker mixing up landmarks, not a hand
+    const BONES = [[5, 6], [6, 7], [7, 8], [1, 2], [2, 3], [3, 4]];
+    function chainGlitch(L) {
+      const pl = d2(L[0], L[9]) || 1e-3;
+      let bad = false,
+        learned = 0;
+      for (const [a, b] of BONES) {
+        const k = a + '-' + b,
+          v = d2(L[a], L[b]) / pl,
+          h = (FEAT_ST.bones[k] = FEAT_ST.bones[k] || []);
+        if (h.length >= 15) {
+          learned++;
+          const m = median(h);
+          if (m > 1e-4 && Math.abs(v - m) / m > 0.35) bad = true;
+        }
+        if (!bad) {
+          h.push(v);
+          if (h.length > 31) h.shift();
+        }
+      }
+      return learned === BONES.length && bad;
+    }
+    // the pinch as a projection: the six thumb and index joints, in the palm's own frame, projected onto this person's
+    // own open-to-closed line (learned from clearly open and clearly closed frames). Distance off that line means the
+    // joints are somewhere a pinch never goes (a landmark swap), and the frame is ignored
+    function palmLocal6(L) {
+      const ux = L[9].x - L[0].x,
+        uy = L[9].y - L[0].y,
+        l = Math.hypot(ux, uy) || 1e-3,
+        u = [ux / l, uy / l],
+        v = [-u[1], u[0]],
+        out = [];
+      for (const i of [2, 3, 4, 6, 7, 8]) {
+        const dx = L[i].x - L[0].x,
+          dy = L[i].y - L[0].y;
+        out.push((dx * u[0] + dy * u[1]) / l, (dx * v[0] + dy * v[1]) / l);
+      }
+      return out;
+    }
+    function pinchProject(L, r0, pinching) {
+      const A = FEAT_ST.pinchAx,
+        v = palmLocal6(L),
+        learn = (key, n, pr) => {
+          if (!A[key]) {
+            A[key] = v.slice();
+            A[n] = 1;
+            A[pr] = r0;
+            return;
+          }
+          const k = A[n] < 30 ? 1 / (A[n] + 1) : 0.02;
+          for (let i = 0; i < 12; i++) A[key][i] += (v[i] - A[key][i]) * k;
+          A[pr] += (r0 - A[pr]) * k;
+          A[n]++;
+        };
+      if (!pinching && r0 > 0.6) learn('o', 'no', 'oPr');
+      else if (pinching && r0 < 0.45) learn('c', 'nc', 'cPr');
+      if (!A.o || !A.c || A.no < 30 || A.nc < 30) return { pr: r0, reject: false };
+      let ax2 = 0,
+        dot = 0;
+      const d = [];
+      for (let i = 0; i < 12; i++) {
+        const a = A.o[i] - A.c[i];
+        d.push(v[i] - A.c[i]);
+        ax2 += a * a;
+        dot += d[i] * a;
+      }
+      if (ax2 < 1e-6) return { pr: r0, reject: false };
+      const u = dot / ax2;
+      let off2 = 0;
+      for (let i = 0; i < 12; i++) {
+        const a = A.o[i] - A.c[i],
+          e = d[i] - u * a;
+        off2 += e * e;
+      }
+      const off = Math.sqrt(off2 / ax2);
+      if (off > 0.6) return { pr: r0, reject: true };
+      return { pr: A.cPr + clamp(u, -0.2, 1.2) * (A.oPr - A.cPr), reject: false };
+    }
+    // the tremor notch: two weights follow a sine and cosine at the tremor frequency the spectrum found, and their fit is
+    // subtracted from the position (a Fourier linear combiner). It only runs while the tremor peak is sharp and strong,
+    // so a hand without tremor is left alone
+    function notchStep(ax, ay, t) {
+      const info = SPEC.info,
+        hz = info.tremorHz,
+        sharp = info.peakShare != null && info.peakShare > 0.35 && info.noise > 0.25 && hz >= 3 && hz <= 12;
+      let N = FEAT_ST.notch;
+      if (!sharp) {
+        if (N) N.w = [0, 0, 0, 0];
+        return [ax, ay];
+      }
+      if (!N) N = FEAT_ST.notch = { ph: 0, t: t, w: [0, 0, 0, 0] };
+      const dt = clamp((t - N.t) / 1000, 0, 0.1);
+      N.t = t;
+      N.ph = (N.ph + 2 * Math.PI * hz * dt) % (2 * Math.PI);
+      const r1 = Math.sin(N.ph),
+        r2 = Math.cos(N.ph),
+        mu = 0.05,
+        ex = N.w[0] * r1 + N.w[1] * r2,
+        ey = N.w[2] * r1 + N.w[3] * r2,
+        yx = ax - ex,
+        yy = ay - ey;
+      // normalised LMS: the weights chase the tremor's current amplitude and phase
+      N.w[0] += mu * yx * r1;
+      N.w[1] += mu * yx * r2;
+      N.w[2] += mu * yy * r1;
+      N.w[3] += mu * yy * r2;
+      const amp = Math.hypot(N.w[0], N.w[1], N.w[2], N.w[3]);
+      if (amp > 0.03) for (let i = 0; i < 4; i++) N.w[i] *= 0.03 / amp; // a tremor is a few mm; anything bigger is a move
+      return [yx, yy];
+    }
     let MODEL = HAND_MODELS.centre,
       MSW = null, // a switch in progress: the old point's offset, fading over a quarter second so the cursor glides
       LASTL = null;
@@ -1465,18 +1609,35 @@
     function feat(L, t, W, side) {
       LASTL = L;
       if (side === 'Left' || side === 'Right') CUR_SIDE = side;
+      // a frame the bone-chain gate rejects: the last good frame is shown again, for at most three frames
+      if (FON('chainGate') && FEAT_ST.lastOut && chainGlitch(L)) {
+        if (FEAT_ST.gateHeld < 3) {
+          FEAT_ST.gateHeld++;
+          FEAT_ST.lastOut.gated = true;
+          return FEAT_ST.lastOut;
+        }
+        FEAT_ST.bones = {}; // three frames on: it isn't a glitch, it's the hand; learn it afresh
+      }
+      FEAT_ST.gateHeld = 0;
       let pt = MODEL.cursor(L, CUR_SIDE);
       if (MSW) {
         const k = Math.exp(-(t - MSW.t0) / 250);
         if (k < 0.02) MSW = null;
         else pt = { x: pt.x + MSW.dx * k, y: pt.y + MSW.dy * k };
       }
-      const ax = pt.x,
+      let ax = pt.x,
         ay = pt.y;
-      const pr = fp.f(d3(L[4], L[8]) / (d3(L[0], L[9]) || 1e-3), t);
+      let r0 = d3(L[4], L[8]) / (d3(L[0], L[9]) || 1e-3);
+      if (FON('pinchProj')) {
+        const pp = pinchProject(L, r0, pinchOn);
+        r0 = pp.reject && FEAT_ST.lastPr != null ? FEAT_ST.lastPr : pp.pr;
+      }
+      FEAT_ST.lastPr = r0;
+      const pr = fp.f(r0, t);
       const prW = W && W.length === 21 ? fpW.f(d3(W[4], W[8]) / (d3(W[0], W[9]) || 1e-3), t) : null;
       if (pinchOn ? pr > pOff : pr < pOn) pinchOn = !pinchOn;
       SPEC.push(ax, ay, t);
+      if (FON('notch')) [ax, ay] = notchStep(ax, ay, t);
       // near the edge of the camera picture the tracker loses part of the hand and the landmarks jump, so the cutoff is
       // lowered there as well (down to a third right at the border)
       const edge = Math.min(ax, 1 - ax, ay, 1 - ay),
@@ -1501,7 +1662,7 @@
           ease = e * e * (3 - 2 * e);
         return u <= 0.04 ? 0.04 * ease : 1 - 0.04 * ease;
       };
-      return {
+      return (FEAT_ST.lastOut = {
         mx,
         my: gy,
         pr,
@@ -1516,7 +1677,7 @@
         ry: clamp((ay - reach.y0) / reach.ys, -0.2, 1.2) * innerHeight,
         x: soft(clamp((mx - reach.x0) / reach.xs, -0.2, 1.2)) * innerWidth,
         y: soft(clamp((gy - reach.y0) / reach.ys, -0.2, 1.2)) * innerHeight,
-      };
+      });
     }
 
     // ---- cursor theme and sounds, chosen on the first card
@@ -2167,6 +2328,8 @@
         this.raw = null;
         this.prev = new Map(); // each item's centre last frame, to carry the cursor with a moving bubble
         this.pr = [];
+        this.lp = null; // the slow "intent" part of the hand's movement (dispersive hold)
+        this.under = null; // which neighbour the hand itself has been sitting on, and since when (neighbour transfer)
       }
       n(x, y, items, span, nMax) {
         let g = 0;
@@ -2203,6 +2366,25 @@
         this.raw = [f.x, f.y];
         const len = Math.hypot(dx, dy);
         const kClose = closing ? 3 : 1;
+        // dispersive hold: the hand's movement is split into a slow, deliberate part (a second-order low-pass, 60 ms)
+        // and the quick remainder (jitter). Only the remainder is slowed by the full hold; the deliberate part feels a
+        // third of it, so a real move is not held back, while the fingers close the whole move is held as before
+        let ix = 0,
+          iy = 0;
+        if (FON('disp')) {
+          if (!this.lp || t - this.lp.t > 500) this.lp = { a: [f.x, f.y], b: [f.x, f.y], t };
+          const kd = 1 - Math.exp(-Math.max(1e-3, Math.min(0.1, (t - this.lp.t) / 1000)) / 0.06),
+            b0 = this.lp.b.slice();
+          this.lp.t = t;
+          this.lp.a[0] += (f.x - this.lp.a[0]) * kd;
+          this.lp.a[1] += (f.y - this.lp.a[1]) * kd;
+          this.lp.b[0] += (this.lp.a[0] - this.lp.b[0]) * kd;
+          this.lp.b[1] += (this.lp.a[1] - this.lp.b[1]) * kd;
+          if (!closing) {
+            ix = this.lp.b[0] - b0[0];
+            iy = this.lp.b[1] - b0[1];
+          }
+        } else this.lp = null;
         if (len > 1e-6) {
           const n1 = this.n(px, py, items, span, nMax).n * kClose;
           const e = 3,
@@ -2239,16 +2421,52 @@
               uy = ty * sin2 + ny * cos2;
             }
           }
-          const nm = (n1 + n2) / 2;
-          px += (ux * len) / nm;
-          py += (uy * len) / nm;
+          let nm = (n1 + n2) / 2;
+          // hold only inside: the rim still bends the cursor toward the button, but only the inside slows it, so an
+          // approach is not delayed and leaving is quicker
+          if (FON('rim')) nm = (this.n(px, py, items, span, nMax).inside ? nMax : 1) * kClose;
+          if (FON('disp') && (ix || iy)) {
+            // the refracted direction turns the whole step; the deliberate part and the remainder are turned the same way
+            const th = Math.atan2(uy, ux) - Math.atan2(dy, dx),
+              cs = Math.cos(th),
+              sn = Math.sin(th),
+              rx = dx - ix,
+              ry = dy - iy,
+              nI = 1 + (nm - 1) * 0.3;
+            px += (ix * cs - iy * sn) / nI + (rx * cs - ry * sn) / nm;
+            py += (ix * sn + iy * cs) / nI + (rx * sn + ry * cs) / nm;
+          } else {
+            px += (ux * len) / nm;
+            py += (uy * len) / nm;
+          }
         }
         const here = this.n(px, py, items, span, nMax),
           off = Math.hypot(f.x - px, f.y - py),
-          inHold = (here.n - 1) / Math.max(1e-6, nMax - 1),
-          k = off > span * 1.6 ? 0.35 : 0.25 * (1 - inHold) + (f.drag ? 0.15 : len > 0.5 ? 0.02 : 0) * inHold;
+          inHold = (here.n - 1) / Math.max(1e-6, nMax - 1);
+        let k = off > span * 1.6 ? 0.35 : 0.25 * (1 - inHold) + (f.drag ? 0.15 : len > 0.5 ? 0.02 : 0) * inHold;
+        if (FON('tether')) {
+          // dead-zone tether: inside a button the pull toward the hand is nothing within a small dead zone (the hand's
+          // own wobble) and grows smoothly to full as the hand gets further away, instead of a step
+          const dz = FEAT_ST.dz,
+            u = clamp((off - dz) / Math.max(1, span * 1.6 - dz), 0, 1),
+            sm = u * u * (3 - 2 * u);
+          k = 0.25 * (1 - inHold) + Math.max(0.35 * sm, f.drag ? 0.15 : 0) * inHold;
+        }
         px += (f.x - px) * (closing ? k * 0.2 : k);
         py += (f.y - py) * (closing ? k * 0.2 : k);
+        // neighbour transfer: held by one button while the hand itself has sat on the next one for a tenth of a second:
+        // the hold lets go and the cursor is pulled over
+        if (FON('transfer')) {
+          const u = items.find((it) => it.dist(f.x, f.y) <= 0),
+            heldBy = this.n(px, py, items, span, nMax).inside;
+          if (u && heldBy && u.key !== heldBy.key) {
+            if (!this.under || this.under.key !== u.key) this.under = { key: u.key, t };
+            else if (t - this.under.t > 100) {
+              px += (f.x - px) * 0.35;
+              py += (f.y - py) * 0.35;
+            }
+          } else this.under = null;
+        }
         px = clamp(px, 0, innerWidth);
         py = clamp(py, 0, innerHeight);
         this.p = [px, py];
@@ -2515,8 +2733,120 @@
       $('cmpBody').querySelectorAll('select[data-lock]').forEach((sel) => {
         sel.onchange = () => lockModel(sel.dataset.lock, sel.value);
       });
+      const fsR = featureSection('Right'),
+        fsL = featureSection('Left');
+      $('cmpBody').insertAdjacentHTML('beforeend', `${fsR.html}${fsL.html}<p class="muted">Each feature is on in half the rounds, by a balanced draw. The effect is from a least-squares fit over the rounds (with the hand model allowed for); “implement in the atlas” needs t ≥ 2; “remove” means a clear loss, or no effect after 12 rounds with it on. Use counts are episodes (targets) played with it on.</p><div class="row"><button type="button" id="cmpCopy">Copy suggestions</button></div>`);
+      $('cmpCopy').onclick = () => {
+        const txt = fsR.text + '\n\n' + fsL.text;
+        try {
+          navigator.clipboard.writeText(txt).then(
+            () => ($('cmpCopy').textContent = 'Copied'),
+            () => ($('cmpCopy').textContent = 'Copy failed: select the text instead'),
+          );
+        } catch (e) {
+          $('cmpCopy').textContent = 'Copy failed: select the text instead';
+        }
+      };
       ['intro', 'done', 'share', 'gameEnd'].forEach((id) => ($(id).hidden = true));
       $('compare').hidden = false;
+    }
+    // ---- what each feature did: an ordinary least-squares fit of the round's result (pop game: throughput; carry game:
+    // score per minute) on one 0/1 column per feature, one per model (against the first), and a constant, per game and
+    // hand. Each feature's coefficient is its effect with that model mix, its standard error says how sure that is, and
+    // t = effect / s.e. decides the verdict. Needs a few more rounds than columns, otherwise it says so.
+    function olsFit(X, y) {
+      const n = X.length,
+        p = X[0].length;
+      if (n < p + 3) return null;
+      const XtX = Array.from({ length: p }, () => new Array(p).fill(0)),
+        Xty = new Array(p).fill(0);
+      for (let i = 0; i < n; i++)
+        for (let a = 0; a < p; a++) {
+          Xty[a] += X[i][a] * y[i];
+          for (let b = 0; b < p; b++) XtX[a][b] += X[i][a] * X[i][b];
+        }
+      for (let a = 0; a < p; a++) XtX[a][a] += 1e-6; // a whisker of ridge, so a column that never varies can't break it
+      const inv = Chooser.inv(XtX),
+        beta = inv.map((r) => r.reduce((s_, v, j) => s_ + v * Xty[j], 0));
+      let rss = 0;
+      for (let i = 0; i < n; i++) {
+        const yh = X[i].reduce((s_, v, j) => s_ + v * beta[j], 0);
+        rss += (y[i] - yh) ** 2;
+      }
+      const s2 = rss / Math.max(1, n - p),
+        se = inv.map((r, j) => Math.sqrt(Math.max(0, s2 * r[j])));
+      return { beta, se, n, p };
+    }
+    function featureEffects(h) {
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && Array.isArray(x.features)),
+        out = {};
+      for (const kind of ['game', 'carry']) {
+        const rs = rows.filter((x) => x.kind === kind),
+          metric = (x) => (kind === 'game' ? x.tp : x.score != null ? (x.score * 60) / CARRY_LEN : null),
+          use = rs.filter((x) => metric(x) != null && isFinite(metric(x))),
+          modelCols = [...MODEL_IDS.slice(1), 'adaptive'],
+          X = use.map((x) => [1, ...FEATURE_IDS.map((id) => (x.features.includes(id) ? 1 : 0)), ...modelCols.map((m) => (x.model === m ? 1 : 0))]),
+          y = use.map(metric),
+          fit = X.length ? olsFit(X, y) : null,
+          feats = {};
+        FEATURE_IDS.forEach((id, i) => {
+          const on = use.filter((x) => x.features.includes(id)).length,
+            off = use.length - on,
+            effect = fit ? fit.beta[1 + i] : null,
+            se = fit ? fit.se[1 + i] : null,
+            tv = effect != null && se > 1e-9 ? effect / se : null,
+            n = use.length;
+          let verdict = 'keep trialling';
+          if (tv != null && tv >= 2 && effect > 0) verdict = 'implement in the atlas';
+          else if (tv != null && (tv <= -2 || (on >= 12 && Math.abs(tv) < 0.5))) verdict = 'remove';
+          feats[id] = { on, off, effect: effect != null ? +effect.toFixed(3) : null, se: se != null ? +se.toFixed(3) : null, t: tv != null ? +tv.toFixed(2) : null, verdict, n };
+        });
+        out[kind] = { n: use.length, fitted: !!fit, feats, unit: kind === 'game' ? 'bits/s' : 'points/min' };
+      }
+      return out;
+    }
+    // models the adaptive chooser never picked in its last 20 episodes on this hand
+    function unchosenModels(h) {
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && x.model === 'adaptive' && x.choices),
+        tot = {};
+      let n = 0;
+      for (let i = rows.length - 1; i >= 0 && n < 20; i--) {
+        for (const [id, c] of Object.entries(rows[i].choices)) {
+          tot[id] = (tot[id] || 0) + c;
+          n += c;
+        }
+      }
+      return n >= 20 ? MODEL_IDS.filter((id) => !tot[id]) : [];
+    }
+    function featureSection(h) {
+      const fx_ = featureEffects(h),
+        lt = featureLetters(h),
+        q = profileHand(h),
+        use = (q && q.use) || {},
+        suggest = [],
+        dead = [];
+      for (const id of FEATURE_IDS) {
+        const g = fx_.game.feats[id],
+          c = fx_.carry.feats[id];
+        if (g.verdict === 'implement in the atlas') suggest.push(`${FEATURES[id].label}: +${g.effect} ${fx_.game.unit} in the pop game (t = ${g.t}, ${g.n} rounds)`);
+        if (c.verdict === 'implement in the atlas') suggest.push(`${FEATURES[id].label}: +${c.effect} ${fx_.carry.unit} in the carry game (t = ${c.t}, ${c.n} rounds)`);
+        if (g.verdict === 'remove' || c.verdict === 'remove') dead.push(`${FEATURES[id].label} (no positive effect after ${Math.max(g.on, c.on)} rounds with it on)`);
+      }
+      for (const id of unchosenModels(h)) dead.push(`model ${HAND_MODELS[id].label} (never chosen by the adaptive chooser in its last 20 episodes)`);
+      const cell = (f) => (f.effect == null ? '–' : `${f.effect > 0 ? '+' : ''}${f.effect} ± ${f.se}`),
+        tbl = FEATURE_IDS.map((id) => {
+          const g = fx_.game.feats[id],
+            c = fx_.carry.feats[id];
+          return `<tr><th>${lt[id]}: ${FEATURES[id].label}</th><td>${g.on} / ${g.off}</td><td>${cell(g)}</td><td>${g.verdict}</td><td>${c.on} / ${c.off}</td><td>${cell(c)}</td><td>${c.verdict}</td><td>${use[id] || 0}</td></tr>`;
+        }).join('');
+      const text = `${h} hand\nSuggested for the atlas:\n${suggest.length ? suggest.map((s_) => '- ' + s_).join('\n') : '- nothing yet'}\nNever used / no effect:\n${dead.length ? dead.map((s_) => '- ' + s_).join('\n') : '- nothing yet'}`;
+      return {
+        text,
+        html: `<h3>Feature trials, ${h.toLowerCase()} hand</h3>
+        <dl><dt>Suggested for the atlas</dt><dd>${suggest.length ? suggest.join('<br />') : 'Nothing yet: a feature is suggested once its effect is clearly positive (t ≥ 2).'}</dd>
+        <dt>Never used / no effect</dt><dd>${dead.length ? dead.join('<br />') : 'Nothing yet (judged after 12 rounds with a feature on).'}</dd></dl>
+        <table class="cmp"><thead><tr><th>feature</th><th>pop on / off</th><th>pop effect (${fx_.game.unit})</th><th>verdict</th><th>carry on / off</th><th>carry effect (${fx_.carry.unit})</th><th>verdict</th><th>used (episodes)</th></tr></thead><tbody>${tbl}</tbody></table>`,
+      };
     }
     function lockModel(h, id) {
       try {
@@ -2722,7 +3052,7 @@
     function gameRows(n) {
       const rows = history().filter((x) => x.kind === 'game' || x.kind === 'carry').slice(-n);
       return rows.map((x) => {
-        const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
+        const o = { kind: x.kind, hand: x.hand, t: String(x.t || '').slice(0, 10), score: r3n(x.score), trained: !!x.trained, model: x.model ? String(x.model).slice(0, 12) : null, choices: x.choices && typeof x.choices === 'object' ? Object.fromEntries(Object.entries(x.choices).slice(0, 8).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null, features: Array.isArray(x.features) ? x.features.slice(0, 12).map((id) => String(id).slice(0, 12)) : [], use: x.use && typeof x.use === 'object' ? Object.fromEntries(Object.entries(x.use).slice(0, 16).map(([k, v]) => [String(k).slice(0, 12), Math.round(+v || 0)])) : null };
         if (x.kind === 'game') {
           for (const k of ['pops', 'fell', 'missPress', 'accuracy', 'reactMs', 'bestCombo', 'level', 'effW', 'tp']) o[k] = r3n(x[k]);
           o.bySize = x.bySize ? Object.fromEntries(['small', 'medium', 'large'].filter((z) => x.bySize[z]).map((z) => [z, { n: r3n(x.bySize[z].n), hit: r3n(x.bySize[z].hit), fell: r3n(x.bySize[z].fell), miss: r3n(x.bySize[z].miss) }])) : null;
@@ -2802,6 +3132,7 @@
       const q = p ? (p.hands && p.hands[h]) || (!p.hands && p.k ? p : null) : null;
       curSnap = q && q.k && q.k.snap ? q.k.snap : BASE.snap;
       curHold = q && q.k && q.k.lens ? q.k.lens : holdFor(q && q.measured && q.measured.wobble);
+      FEAT_ST.dz = Math.max(12, 2.5 * ((q && q.measured && q.measured.wobble) || 0));
       FLD.reset();
       if (q && q.k) {
         reach = Object.assign({}, q.reach || BASE_REACH_NOW);
@@ -3177,6 +3508,43 @@
       if (we == null) return '–';
       return `your pops spread over about ${we} px: targets at least that wide are easy for you (the small bubbles are ${SIZES[0][1]} px)`;
     }
+    // ---- the feature trial: each round, every feature is on or off by a balanced draw per hand (a shuffled run of eight
+    // rounds with each feature on in exactly four), so after a few rounds on and off can be compared fairly. A fixed set
+    // in the profile (hands[h].features) overrides the draw.
+    function pickFeatures(h) {
+      const q = profileHand(h);
+      if (q && Array.isArray(q.features)) return { ids: q.features.filter((id) => FEATURES[id]), locked: true };
+      let seq = {};
+      try {
+        seq = JSON.parse(localStorage.getItem('featSeq') || '{}');
+      } catch (e) {}
+      const mine = (seq[h] = seq[h] || {}),
+        ids = [];
+      for (const id of FEATURE_IDS) {
+        if (!Array.isArray(mine[id]) || !mine[id].length) mine[id] = [1, 1, 1, 1, 0, 0, 0, 0].sort(() => Math.random() - 0.5);
+        if (mine[id].shift()) ids.push(id);
+      }
+      try {
+        localStorage.setItem('featSeq', JSON.stringify(seq));
+      } catch (e) {}
+      return { ids, locked: false };
+    }
+    // neutral letters for the features, per hand, like the models' (so the code in the game gives nothing away)
+    function featureLetters(h) {
+      let m = {};
+      try {
+        m = JSON.parse(localStorage.getItem('featLetters') || '{}');
+      } catch (e) {}
+      if (!m[h] || FEATURE_IDS.some((id) => !m[h][id])) {
+        const ls = 'abcdefghijkl'.slice(0, FEATURE_IDS.length).split('').sort(() => Math.random() - 0.5);
+        m[h] = Object.fromEntries(FEATURE_IDS.map((id, i) => [id, ls[i]]));
+        try {
+          localStorage.setItem('featLetters', JSON.stringify(m));
+        } catch (e) {}
+      }
+      return m[h];
+    }
+    const featureCode = (h, ids) => (ids.length ? ids.map((id) => featureLetters(h)[id]).sort().join('') : '0');
     // ---- the model trial, shared by both games: which model this round plays, the adaptive episodes and their rewards
     function startModelRound(st, h, t) {
       const pick = pickModel(h);
@@ -3185,6 +3553,11 @@
       st.choices = {};
       st.episodes = [];
       st.epi = null;
+      st.use = {};
+      const fp_ = pickFeatures(h);
+      st.features = fp_.ids;
+      st.featuresLocked = fp_.locked;
+      setFeatures(st.features);
       if (pick.id === 'adaptive') {
         const q = profileHand(h);
         st.chooser = new Chooser(MODEL_IDS, q && q.bandit);
@@ -3192,7 +3565,19 @@
         st.chooser = null;
         setModel(pick.id, t);
       }
-      $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '');
+      $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '') + ' · ' + featureCode(h, st.features) + (fp_.locked ? ' 🔒' : '');
+    }
+    // the round is over: the features go back off (the training steps and the end cards run plain), and the use counts
+    // are kept in the profile
+    function endTrialRound(st, h) {
+      setFeatures([]);
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!p || !p.hands || !p.hands[h]) return;
+        const u = (p.hands[h].use = p.hands[h].use || {});
+        for (const [id, n] of Object.entries(st.use || {})) u[id] = (u[id] || 0) + n;
+        localStorage.setItem(KEY, JSON.stringify(p));
+      } catch (e) {}
     }
     function episodeStart(st, task, f, targetPx, t) {
       const x = ctxFeatures(task, f, st.hand, targetPx),
@@ -3202,6 +3587,7 @@
       st.choices[arm] = (st.choices[arm] || 0) + 1;
     }
     function episodeEnd(st, reward, t) {
+      useTick(st);
       const e = st.epi;
       if (!e || !st.chooser) return;
       const r = clamp(reward * timeFactor(t - e.t0), 0, 1);
@@ -3546,7 +3932,8 @@
         hold = d.length ? median(d.map((x) => x.holdMs)) : null;
       const hist = history();
       saveChooser(C, h);
-      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null });
+      endTrialRound(C, h);
+      hist.push({ t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -3595,7 +3982,8 @@
       }
       const hist = history();
       saveChooser(G, h);
-      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null });
+      endTrialRound(G, h);
+      hist.push({ t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -3703,7 +4091,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.33',
+        app: 'v0.34',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -4349,6 +4737,13 @@
     window.trainGameEnd = endGame;
     window.trainCarry = startCarry;
     window.trainModels = HAND_MODELS;
+    window.trainFeatures = FEATURES;
+    window.trainSetFeatures = setFeatures;
+    window.trainPickFeatures = pickFeatures;
+    window.trainFeatureEffects = featureEffects;
+    window.trainFeatureSection = featureSection;
+    window.trainFeatState = FEAT_ST;
+    window.trainUse = USE;
     window.trainSetModel = setModel;
     window.trainModel = () => MODEL.id;
     window.trainPickModel = pickModel;
