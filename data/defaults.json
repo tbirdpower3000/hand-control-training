@@ -6,11 +6,11 @@
   "all": {
    "snap": 72,
    "minCut": 0.28,
-   "beta": 1.1,
-   "pOn": 0.45,
-   "pOff": 0.6208,
-   "n": 1
+   "beta": 1.6,
+   "pOn": 0.4225,
+   "pOff": 0.6193,
+   "n": 2
   }
  },
- "results": 1
+ "results": 2
 }
