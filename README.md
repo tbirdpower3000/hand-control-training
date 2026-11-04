@@ -1,4 +1,4 @@
-# Hand control training (v0.36)
+# Hand control training (v0.37)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -34,6 +34,14 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 **🎞 Replay** draws what happened in the last few minutes (targets, prompts, the cursor and its trail, presses, and the tracked hand points with the waist line) so a problem can be watched again. You can download the replay log and send it in, or open one. It holds no camera picture, stays in the tab until you reload, and is never sent anywhere by itself.
 
 The profile (a few numbers) is saved in your browser. The atlas, which lives on the same site, picks it up the next time you start hand control, and its 🎯 Adaptive aim keeps fine-tuning it as you go. You can also download the profile as a file and open it in the atlas with "Open a planet pack".
+
+## Lighting
+
+Hand tracking depends on light, so both games measure it. Four times a second the camera picture is shrunk to a tiny 64 × 36 copy and a few numbers are worked out from it: how bright it is, how much contrast it has, how much is blown out or black, whether the edges are much brighter than the middle (a window or lamp behind you), how bright your hand is and how much it stands out from the background, the colour cast, and how much the brightness flickers. Only those numbers are kept; no picture is stored or sent.
+
+During a game a small chip under the scoreboard says **Dark**, **Dim**, **Good**, **Bright** or **Backlit**. If it is Dark or Backlit for 3 seconds at the start of a round, the game says how to fix it, once. Each round also records how often your hand was lost (frames resting below the waist line don't count), how sure the tracker was that it was your hand, and how much the cursor wobbled while your hand was held still. The end card shows a Lighting line with these.
+
+The private comparison (add `#compare` to the address) has a **Lighting and tracking** section for each hand: your rounds grouped by light, with how often the hand was lost, the wobble, the pop game's throughput and the carry game's placement for each group, and a straight-line fit of each of those on brightness and on how much your hand stands out. The feature and model trials allow for the light too, so a round that went better because the room was brighter isn't credited to a feature.
 
 ## Sharing results
 
