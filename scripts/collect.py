@@ -2,15 +2,83 @@
 is a plausible training result (numbers only, in sensible ranges), adds it to data/results.jsonl, recomputes data/defaults.json
 (the shared starting settings the atlas loads), and closes the issue with a thank-you. Anything that doesn't validate is
 closed with a note and nothing is stored."""
-import json, os, re, sys, statistics as st
+import hashlib, json, os, re, sys, statistics as st
 
 ISSUE_BODY = os.environ.get('ISSUE_BODY', '')
 ISSUE_NUM = os.environ.get('ISSUE_NUMBER', '0')
+# the GitHub username of whoever opened the issue, only to make a one-way code so each person counts once in the shared
+# defaults; the username itself is never stored
+ISSUE_AUTHOR = os.environ.get('ISSUE_AUTHOR', '')
 OUT = 'data/results.jsonl'
 DEF = 'data/defaults.json'
+SALT = 'hand-control-training/contributor/v1'
+MIN_PEOPLE = 5  # shared defaults are published only once this many different people have shared results
+
+
+def contributor(login):
+    login = (login or '').strip().lower()
+    return hashlib.sha256((SALT + ':' + login).encode()).hexdigest()[:12] if login else None
 
 LIM = {'snap': (28, 72), 'minCut': (0.25, 0.8), 'beta': (1, 3), 'pOn': (0.15, 0.45), 'pOff': (0.3, 0.7)}
 CHOICES = {'hand': {'right', 'left', 'either', 'both'}, 'steady': {'steady', 'some', 'shaky'}, 'sit': {'close', 'arm', 'far'}}
+
+
+def med(vals, lo, hi):
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    return round(min(hi, max(lo, st.median(vals))), 4) if vals else None
+
+
+def summarise(rs):
+    # smoothing and button pull carry over as they are. Pinch thresholds are only shared in the atlas's 3D world space
+    # (kW, from training v0.20 on): the older image-space numbers don't mean the same thing to the atlas's 3D pinch.
+    out = {n: med([r['k'][n] for r in rs], lo, hi) for n, (lo, hi) in LIM.items() if n not in ('pOn', 'pOff')}
+    w = [r for r in rs if isinstance(r.get('kW'), dict)]
+    if len(w) >= MIN_PEOPLE:
+        out['pOn'] = med([r['kW'].get('pOn') for r in w], *LIM['pOn'])
+        out['pOff'] = med([r['kW'].get('pOff') for r in w], *LIM['pOff'])
+    return out | {'n': len(rs), 'n3d': len(w)}
+
+
+DEFAULTS_READY = False
+
+
+def write_defaults():
+    """data/defaults.json from each person's latest result only (results shared before v0.40 carry no person code and count as
+    one person together), published only when at least MIN_PEOPLE different people are in a group; until then it says
+    ready: false and the atlas keeps its built-in starting settings."""
+    global DEFAULTS_READY
+    rows = [json.loads(l) for l in open(OUT) if l.strip()] if os.path.exists(OUT) else []
+    latest = {}
+    for r in rows:
+        who = r.get('who') or 'before-v0.40'
+        if who not in latest or r.get('issue', 0) >= latest[who].get('issue', 0):
+            latest[who] = r
+    people = list(latest.values())
+    groups = {'all': people}
+    for s_ in CHOICES['steady']:
+        groups[s_] = [r for r in people if (r.get('answers') or {}).get('steady') == s_]
+    ready = {g: rs for g, rs in groups.items() if len(rs) >= MIN_PEOPLE}
+    DEFAULTS_READY = 'all' in ready
+    d = {
+        'format': 'hand-control-defaults',
+        'version': 2,
+        'note': 'Shared starting settings for hand control: the medians of the latest result of each person who chose to share from the training page. Published once at least %d different people have shared; until then ready is false and the atlas keeps its built-in settings. A personal profile always overrides them.' % MIN_PEOPLE,
+        'ready': DEFAULTS_READY,
+        'people': len(people),
+        'needed': MIN_PEOPLE,
+        'results': len(rows),
+    }
+    if DEFAULTS_READY:
+        d['groups'] = {g: summarise(rs) for g, rs in ready.items()}
+    os.makedirs('data', exist_ok=True)
+    json.dump(d, open(DEF, 'w'), indent=1)
+    return rows
+
+
+if '--defaults-only' in sys.argv:
+    write_defaults()
+    print('defaults', 'ready' if DEFAULTS_READY else 'not ready')
+    sys.exit(0)
 
 
 def fail(why):
@@ -116,9 +184,12 @@ def game_rows(gs):
         o['track'] = {n: num(tr.get(n), *lim) for n, lim in TRACK_LIM.items()} if isinstance(tr, dict) else None
         # how far the person sat from the camera this round (cm, from the gap between the pupils)
         o['distCm'] = num(g.get('distCm'), 20, 300)
+        vv = g.get('v')
+        o['v'] = vv[:8] if isinstance(vv, str) and re.fullmatch(r'[0-9.]{1,8}', vv[:8] or '') else None
         if g['kind'] == 'game':
             for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'effWHits', 'tp'):
                 o[n] = num(g.get(n))
+            o['speed'] = num(g.get('speed'), -5, 5)
             o['accuracy'] = num(g.get('accuracy'), 0, 1)
             bs = g.get('bySize')
             if isinstance(bs, dict):
@@ -151,6 +222,7 @@ def game_rows(gs):
 # keep only the fields we know, so nothing else from the issue is stored
 rec = {
     'issue': int(ISSUE_NUM),
+    'who': contributor(ISSUE_AUTHOR),
     'k': {n: round(float(k[n]), 4) for n in LIM},
     'kW': {n: round(float(p['kW'][n]), 4) for n in ('pOn', 'pOff')} if isinstance(p.get('kW'), dict) and all(isinstance(p['kW'].get(n), (int, float)) and LIM[n][0] <= p['kW'][n] <= LIM[n][1] for n in ('pOn', 'pOff')) else None,
     'reach': {a: round(float(p['reach'][a]), 3) for a in ('xs', 'ys')} if isinstance(p.get('reach'), dict) and all(isinstance(p['reach'].get(a), (int, float)) for a in ('xs', 'ys')) else None,
@@ -190,38 +262,6 @@ if rec['games']:
 with open(OUT, 'a') as f:
     f.write(json.dumps(rec, separators=(',', ':')) + '\n')
 
-# shared defaults: medians over everyone, and over each steadiness answer, with the same limits as the page
-rows = [json.loads(l) for l in open(OUT) if l.strip()]
-
-
-def med(vals, lo, hi):
-    vals = [v for v in vals if isinstance(v, (int, float))]
-    return round(min(hi, max(lo, st.median(vals))), 4) if vals else None
-
-
-def summarise(rs):
-    # smoothing and button pull carry over as they are. Pinch thresholds are only shared in the atlas's 3D world space
-    # (kW, from training v0.20 on): the older image-space numbers don't mean the same thing to the atlas's 3D pinch.
-    out = {n: med([r['k'][n] for r in rs], lo, hi) for n, (lo, hi) in LIM.items() if n not in ('pOn', 'pOff')}
-    w = [r for r in rs if isinstance(r.get('kW'), dict)]
-    if len(w) >= 5:
-        out['pOn'] = med([r['kW'].get('pOn') for r in w], *LIM['pOn'])
-        out['pOff'] = med([r['kW'].get('pOff') for r in w], *LIM['pOff'])
-    return out | {'n': len(rs), 'n3d': len(w)}
-
-
-groups = {'all': rows}
-for s_ in CHOICES['steady']:
-    sub = [r for r in rows if r['answers'].get('steady') == s_]
-    if len(sub) >= 3:
-        groups[s_] = sub
-defaults = {
-    'format': 'hand-control-defaults',
-    'version': 1,
-    'note': 'Shared starting settings for hand control, the medians of results people chose to share from the training page. The atlas loads these as its defaults; a personal profile always overrides them.',
-    'groups': {g: summarise(rs) for g, rs in groups.items()},
-    'results': len(rows),
-}
-json.dump(defaults, open(DEF, 'w'), indent=1)
-open('collect_msg.txt', 'w').write(f"Thank you! Your result is number {len(rows)}. The shared defaults in `data/defaults.json` are updated, and the atlas picks them up within a few minutes. Only the numbers in your JSON block were stored." + (" Your game rounds were included." if rec['games'] else "") + (f" {skipped} game round{'s' if skipped != 1 else ''} you had shared before {'were' if skipped != 1 else 'was'} skipped." if skipped else ""))
+rows = write_defaults()
+open('collect_msg.txt', 'w').write(f"Thank you! Your result is number {len(rows)}. " + ("The shared defaults in `data/defaults.json` are updated, and the atlas picks them up within a few minutes." if DEFAULTS_READY else f"The shared defaults start once {MIN_PEOPLE} different people have shared; until then the atlas keeps its built-in starting settings.") + " Only the numbers in your JSON block were stored." + (" Your game rounds were included." if rec['games'] else "") + (f" {skipped} game round{'s' if skipped != 1 else ''} you had shared before {'were' if skipped != 1 else 'was'} skipped." if skipped else ""))
 print('OK', len(rows))

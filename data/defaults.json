@@ -1,29 +1,9 @@
 {
  "format": "hand-control-defaults",
- "version": 1,
- "note": "Shared starting settings for hand control, the medians of results people chose to share from the training page. The atlas loads these as its defaults; a personal profile always overrides them.",
- "groups": {
-  "all": {
-   "snap": 72,
-   "minCut": 0.25,
-   "beta": 1.5,
-   "n": 40,
-   "n3d": 0
-  },
-  "shaky": {
-   "snap": 72,
-   "minCut": 0.28,
-   "beta": 2.1,
-   "n": 6,
-   "n3d": 0
-  },
-  "steady": {
-   "snap": 72,
-   "minCut": 0.28,
-   "beta": 2.1,
-   "n": 5,
-   "n3d": 0
-  }
- },
+ "version": 2,
+ "note": "Shared starting settings for hand control: the medians of the latest result of each person who chose to share from the training page. Published once at least 5 different people have shared; until then ready is false and the atlas keeps its built-in settings. A personal profile always overrides them.",
+ "ready": false,
+ "people": 1,
+ "needed": 5,
  "results": 40
 }
