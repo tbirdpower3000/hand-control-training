@@ -1,4 +1,4 @@
-# Hand control training (v0.37)
+# Hand control training (v0.38)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -34,6 +34,8 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 **🎞 Replay** draws what happened in the last few minutes (targets, prompts, the cursor and its trail, presses, and the tracked hand points with the waist line) so a problem can be watched again. You can download the replay log and send it in, or open one. It holds no camera picture, stays in the tab until you reload, and is never sent anywhere by itself.
 
 The profile (a few numbers) is saved in your browser. The atlas, which lives on the same site, picks it up the next time you start hand control, and its 🎯 Adaptive aim keeps fine-tuning it as you go. You can also download the profile as a file and open it in the atlas with "Open a planet pack".
+
+**v0.38.** A carried disc keeps up with your hand: the extra hold that stops a pinch from dragging the cursor now lasts only while the fingers are closing or opening, not for the whole held pinch, so the disc no longer trails 60–170 px behind and creeps the last few centimetres into the square. The precision figure counts your misses too, so it no longer understates the spread of a shaky hand, and the end card now gives the width you land 96% of pops within. A button's highlight no longer flickers when the cursor sits at its edge: it comes on at the edge but goes off only once the cursor is clearly outside, by about your own measured wobble.
 
 ## Lighting
 

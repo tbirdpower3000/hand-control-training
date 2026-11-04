@@ -115,7 +115,7 @@ def game_rows(gs):
         tr = g.get('track')
         o['track'] = {n: num(tr.get(n), *lim) for n, lim in TRACK_LIM.items()} if isinstance(tr, dict) else None
         if g['kind'] == 'game':
-            for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'tp'):
+            for n in ('pops', 'fell', 'missPress', 'reactMs', 'bestCombo', 'level', 'effW', 'effWHits', 'tp'):
                 o[n] = num(g.get(n))
             o['accuracy'] = num(g.get('accuracy'), 0, 1)
             bs = g.get('bySize')
