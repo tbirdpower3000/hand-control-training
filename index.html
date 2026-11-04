@@ -590,6 +590,147 @@
     outline: 3px solid var(--blue);
     outline-offset: 2px;
   }
+  /* the menus: big tiles, two columns on wide screens and one on phones, each with an icon, a name and one short line */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  @media (max-width: 600px) {
+    .tiles {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .tile {
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    text-align: left;
+    padding: 10px 14px;
+    min-width: 0;
+  }
+  .tile .ti {
+    font-size: 1.5rem;
+    width: 1.6em;
+    flex: none;
+    text-align: center;
+  }
+  .tile .tt {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .tile small {
+    font-weight: 400;
+    font-size: 0.85rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .tile.primary small {
+    color: inherit;
+    opacity: 0.8;
+  }
+  /* a menu item under the hand's cursor */
+  .card button.hot,
+  .card .btn.hot,
+  .card label.hot {
+    outline: 3px solid var(--gold);
+    outline-offset: 2px;
+  }
+  details summary {
+    cursor: pointer;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    color: var(--muted);
+  }
+  /* choose your aim */
+  #aim h3 {
+    margin: 4px 0 0;
+    font-size: 1rem;
+  }
+  .aimTabs button[aria-selected='true'] {
+    background: #c9d4e3;
+    color: var(--space);
+    border-color: #c9d4e3;
+  }
+  .aimList {
+    display: grid;
+    gap: 8px;
+  }
+  .aimOpt {
+    display: grid;
+    gap: 6px;
+    width: 100%;
+    min-height: 64px;
+    text-align: left;
+    padding: 10px 14px;
+    justify-items: stretch;
+  }
+  .aimOpt .aimTop {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .aimOpt .aimPct {
+    font: 700 1.4rem var(--mono, monospace);
+    color: var(--gold);
+  }
+  .aimOpt .aimBar {
+    display: block;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+  }
+  .aimOpt .aimBar i {
+    display: block;
+    height: 100%;
+    background: var(--gold);
+  }
+  .aimOpt small {
+    font-weight: 400;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .aimOpt .aimBest {
+    color: var(--good);
+    font-weight: 700;
+  }
+  .aimOpt.sel {
+    border-color: var(--gold);
+    box-shadow: inset 0 0 0 2px var(--gold);
+  }
+  #aim .aimrow button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 10px;
+  }
+  @media (max-width: 600px) {
+    #aim .aimrow button {
+      padding-inline: 4px;
+      font-size: 0.95rem;
+      white-space: nowrap;
+    }
+  }
+  .aimOpt:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* the aim card's buttons stay in reach while its options scroll */
+  #aim .aimrow {
+    position: sticky;
+    bottom: -22px;
+    background: #151b29; /* the card's colour, opaque, so the options scroll behind it */
+    flex-wrap: nowrap;
+    padding-block: 8px 22px;
+    margin-bottom: -22px;
+    z-index: 1;
+  }
   /* after each step: did that work? answer by voice or by pinching a button */
   #ask {
     position: fixed;
@@ -847,7 +988,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.38, 4 Nov 2026">v0.38</div>
+<div id="ver" title="Hand control training, version 0.39, 4 Nov 2026">v0.39</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -868,19 +1009,31 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.38 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.39 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
   </p>
-  <ol>
+  <div class="tiles" id="homeTiles">
+    <button type="button" class="tile primary" id="go"><span class="ti" aria-hidden="true">✋</span><span class="tt"><b>Train</b><small>About a minute, full screen</small></span></button>
+    <button type="button" class="tile" id="play"><span class="ti" aria-hidden="true">🎈</span><span class="tt"><b>Pop the bubbles</b><small>45 s · pinch falling bubbles</small></span></button>
+    <button type="button" class="tile" id="carry"><span class="ti" aria-hidden="true">📦</span><span class="tt"><b>Carry the disc</b><small>60 s · pick up, carry, drop</small></span></button>
+    <button type="button" class="tile" id="aimBtn"><span class="ti" aria-hidden="true">🎯</span><span class="tt"><b>Choose your aim</b><small>See what works best for you</small></span></button>
+    <button type="button" class="tile" id="cmpBtn"><span class="ti" aria-hidden="true">📊</span><span class="tt"><b>Compare</b><small>Right and left, over time</small></span></button>
+    <button type="button" class="tile" id="shareBtn0"><span class="ti" aria-hidden="true">🔗</span><span class="tt"><b>Share results</b><small>Optional, with the project</small></span></button>
+    <a class="tile btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/"><span class="ti" aria-hidden="true">←</span><span class="tt"><b>Back to the atlas</b><small>Your settings go with you</small></span></a>
+  </div>
+  <p class="muted" id="introMsg"></p>
+  <details>
+    <summary>What the training does</summary>
+    <ol>
     <li><b>Reach:</b> move your open hand to four comfortable corners, and say how easy each one was.</li>
     <li><b>Pinch:</b> open your hand, then pinch thumb to index finger, a few times.</li>
     <li><b>Hold still:</b> keep the cursor on a dot for three seconds.</li>
     <li><b>Targets:</b> press eight buttons as they appear.</li>
     <li><b>Fast:</b> dart across the screen to a ring and stop on it, a few times.</li>
   </ol>
-  <p class="muted">Or just play: <b>🎈 Pop the bubbles</b> is a 45-second game where you pinch falling bubbles of three sizes (small ones score more). It uses your trained settings, if you have them, and gets faster as you score.</p>
+  </details>
   <fieldset>
     <legend>Which hands should it learn?</legend>
     <div class="chips">
@@ -932,30 +1085,25 @@
     <span>Your profile (a few numbers) is saved in this browser only, where the atlas picks it up. Sharing it with the project at the end is optional and needs a GitHub account.</span>
     <span>This is an educational tool for adjusting a game-like control. It is not a medical test and does not measure or diagnose anything about your health or motor skills.</span>
   </div>
-  <div class="row">
-    <button type="button" class="primary" id="go">✋ Start training (full screen)</button>
-    <button type="button" id="play">🎈 Pop the bubbles (game)</button>
-    <button type="button" id="carry">📦 Carry the disc (game)</button>
-    <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">← Back to the atlas</a>
-  </div>
-  <p class="muted" id="introMsg"></p>
 </section>
 
 <section class="card" id="done" hidden>
   <h2>Your hand-control profile</h2>
-  <dl id="sum"></dl>
-  <p class="muted">Saved in this browser. The atlas uses it the next time you start hand control, and 🎯 Adaptive aim keeps fine-tuning it as you go.</p>
-  <div class="row">
-    <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">← Back to the atlas</a>
-    <button type="button" id="again">Train again</button>
-    <button type="button" id="play2">🎈 Pop the bubbles</button>
-    <button type="button" id="carry2">📦 Carry the disc</button>
-    <button type="button" id="replayBtn">🎞 Replay what happened</button>
-    <button type="button" id="dl">⤓ Download profile</button>
-    <button type="button" id="shareBtn">Share results with the project</button>
-    <button type="button" id="reset">Reset to defaults</button>
+  <div class="tiles" id="doneTiles">
+    <button type="button" class="tile primary" id="play2"><span class="ti" aria-hidden="true">🎈</span><span class="tt"><b>Pop the bubbles</b><small>45 s · pinch falling bubbles</small></span></button>
+    <button type="button" class="tile" id="carry2"><span class="ti" aria-hidden="true">📦</span><span class="tt"><b>Carry the disc</b><small>60 s · pick up, carry, drop</small></span></button>
+    <button type="button" class="tile" id="aim2"><span class="ti" aria-hidden="true">🎯</span><span class="tt"><b>Choose your aim</b><small>See what works best for you</small></span></button>
+    <button type="button" class="tile" id="cmp2"><span class="ti" aria-hidden="true">📊</span><span class="tt"><b>Compare</b><small>Right and left, over time</small></span></button>
+    <button type="button" class="tile" id="again"><span class="ti" aria-hidden="true">✋</span><span class="tt"><b>Train again</b><small>Replaces this profile</small></span></button>
+    <button type="button" class="tile" id="shareBtn"><span class="ti" aria-hidden="true">🔗</span><span class="tt"><b>Share results</b><small>Optional, with the project</small></span></button>
+    <button type="button" class="tile" id="replayBtn"><span class="ti" aria-hidden="true">🎞</span><span class="tt"><b>Replay</b><small>What the camera saw, as points</small></span></button>
+    <button type="button" class="tile" id="dl"><span class="ti" aria-hidden="true">⤓</span><span class="tt"><b>Download profile</b><small>Open it in another browser</small></span></button>
+    <button type="button" class="tile" id="reset"><span class="ti" aria-hidden="true">↺</span><span class="tt"><b>Reset to defaults</b><small>Forget this profile</small></span></button>
+    <a class="tile btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/"><span class="ti" aria-hidden="true">←</span><span class="tt"><b>Back to the atlas</b><small>Your settings go with you</small></span></a>
   </div>
   <p class="muted" id="doneMsg"></p>
+  <dl id="sum"></dl>
+  <p class="muted">Saved in this browser. The atlas uses it the next time you start hand control, and 🎯 Adaptive aim keeps fine-tuning it as you go.</p>
 </section>
 
 <section class="card" id="gameEnd" hidden>
@@ -965,6 +1113,7 @@
   <p class="muted">Kept in this browser only. The game uses your trained settings for the hand you play with and fine-tunes them a little after each round (the atlas picks that up). It pauses while your hand rests below the waist line.</p>
   <div class="row">
     <button type="button" class="primary" id="gameAgain">🎈 Play again</button>
+    <button type="button" id="gameAim">🎯 Choose your aim</button>
     <button type="button" id="gameBack">← Back</button>
     <button type="button" id="gameShare">Share results</button>
     <button type="button" id="replayBtn2">🎞 Replay</button>
@@ -996,12 +1145,27 @@
   <p class="muted">Kept in this browser only. The carry game measures holding a pinch while moving, how precisely you can place something, how often the disc slips and how the corners compare with the middle, and fine-tunes the trained settings of the hand that played (the pinch-off threshold, the hold on targets, smoothing, and the reach box toward slow corners). It pauses while your hand rests below the waist line.</p>
   <div class="row">
     <button type="button" class="primary" id="carryAgain">📦 Play again</button>
+    <button type="button" id="carryAim">🎯 Choose your aim</button>
     <button type="button" id="carryBack">← Back</button>
     <button type="button" id="carryShare">Share results</button>
     <button type="button" id="replayBtn4">🎞 Replay</button>
     <button type="button" id="carryUndo" hidden>↶ Undo the tuning</button>
     <a class="btn" href="https://tbirdpower3000.github.io/planetary-atlas-v15mk2/">Go to the atlas</a>
   </div>
+</section>
+
+<section class="card" id="aim" hidden aria-labelledby="aimH">
+  <h2 id="aimH">🎯 Choose your aim</h2>
+  <div class="row aimTabs" role="tablist"><button type="button" id="aimR" role="tab" aria-selected="true">Right hand</button><button type="button" id="aimL" role="tab" aria-selected="false">Left hand</button></div>
+  <p class="muted" id="aimNow"></p>
+  <div id="aimBody"></div>
+  <p class="muted">Percentages from few rounds can change a lot; 10 or more rounds per option give a fair comparison. Pop: the share of your pinches that popped a bubble. Carry: the share of carries that landed in the square.</p>
+  <div class="row aimrow">
+    <button type="button" class="primary" id="aimPlay" title="Pop the bubbles">🎈 Bubbles</button>
+    <button type="button" id="aimCarry" title="Carry the disc">📦 Carry</button>
+    <button type="button" id="aimBack">← Back</button>
+  </div>
+  <p class="muted" id="aimMsg"></p>
 </section>
 
 <section class="card" id="compare" hidden>
@@ -3412,7 +3576,7 @@
           $('cmpCopy').textContent = 'Copy failed: select the text instead';
         }
       };
-      ['intro', 'done', 'share', 'gameEnd'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'gameEnd', 'carryEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       $('compare').hidden = false;
     }
     // ---- what each feature did: an ordinary least-squares fit of the round's result (pop game: throughput; carry game:
@@ -3625,6 +3789,149 @@
         }).join('')}</tbody></table>`;
       return { buckets, html, n: rows.length };
     }
+    // ---- choose your aim: for each hand model and camera model, from this hand's rounds with it, the share of pinches that
+    // popped a bubble and the share of carries that landed in the square. The option with the best pop share over 3 or
+    // more rounds is marked; choosing an option locks it for this hand, and "keep comparing" goes back to taking turns.
+    const AIM_TEXT = {
+      centre: 'The middle of your palm: the steadiest point; closing your fingers barely moves it.',
+      tip: 'Your index fingertip: points exactly where you point, but shakes the most.',
+      ray: 'A fingertip rebuilt from your palm’s direction: points like a finger, ignores a wobbling fingertip.',
+      palm: 'A palm shape fitted to your hand each moment: steady, and sits where your fingertip usually is.',
+      adaptive: 'Learns, as you play, which of the four suits each target.',
+      flat: 'The camera picture as it is: simple, but moving your chair moves the cursor.',
+      tri: 'Measured from between your eyes: leaning in or moving your chair doesn’t move the cursor.',
+      tri9: 'Like the one above, plus a gentle curve fitted from nine reach points.',
+      sphere: 'Follows your arm’s angle about the shoulder.',
+    };
+    const capFirst = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+    const aimName = (kind, id) => (id === 'adaptive' ? 'Adaptive' : capFirst(kind === 'model' ? HAND_MODELS[id].label : MAPPINGS[id].label));
+    function aimStats(h, kind, id) {
+      const rows = history().filter((x) => (x.kind === 'game' || x.kind === 'carry') && x.hand === h && (kind === 'model' ? x.model === id : x.mapping === id)),
+        g = rows.filter((x) => x.kind === 'game'),
+        c = rows.filter((x) => x.kind === 'carry'),
+        sum = (a, k) => a.reduce((s_, x) => s_ + (+x[k] || 0), 0),
+        pops = sum(g, 'pops'),
+        miss = sum(g, 'missPress'),
+        del = sum(c, 'deliveries'),
+        sl = sum(c, 'slips');
+      return { rounds: rows.length, popRounds: g.length, pop: pops + miss > 0 ? pops / (pops + miss) : null, carryRounds: c.length, carry: del + sl > 0 ? del / (del + sl) : null };
+    }
+    function aimBest(h, kind) {
+      const ids = kind === 'model' ? [...MODEL_IDS, 'adaptive'] : MAPPING_IDS;
+      let best = null,
+        bv = -1;
+      for (const id of ids) {
+        const st = aimStats(h, kind, id);
+        if (st.popRounds >= 3 && st.pop != null && st.pop > bv) {
+          bv = st.pop;
+          best = id;
+        }
+      }
+      return best;
+    }
+    function lockMapping(h, id) {
+      try {
+        const p = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!p || !p.hands || !p.hands[h]) return false;
+        if (id) p.hands[h].mapping = id;
+        else delete p.hands[h].mapping;
+        localStorage.setItem(KEY, JSON.stringify(p));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    let aimFrom = 'intro',
+      aimHand = 'Right';
+    function openAim(from, h) {
+      aimFrom = from || 'intro';
+      if (h === 'Right' || h === 'Left') aimHand = h;
+      else {
+        const p = (() => {
+          try {
+            return JSON.parse(localStorage.getItem(KEY) || 'null');
+          } catch (e) {
+            return null;
+          }
+        })();
+        aimHand = p && p.hands && !p.hands.Right && p.hands.Left ? 'Left' : HAND || 'Right';
+      }
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      $('aim').hidden = false;
+      showAim();
+    }
+    function showAim() {
+      const h = aimHand,
+        q = profileHand(h),
+        pct = (v) => (v == null ? '–' : Math.round(v * 100) + '%');
+      $('aimR').setAttribute('aria-selected', h === 'Right' ? 'true' : 'false');
+      $('aimL').setAttribute('aria-selected', h === 'Left' ? 'true' : 'false');
+      const camOk = mappingsFor(q),
+        lockedM = q && q.model,
+        lockedP = q && q.mapping;
+      const opt = (kind, id) => {
+        const st = aimStats(h, kind, id),
+          best = aimBest(h, kind) === id,
+          big = st.pop != null ? st.pop : st.carry,
+          parts = [st.pop != null ? `Pop ${pct(st.pop)}` : null, st.carry != null ? `Carry ${pct(st.carry)}` : null].filter(Boolean).join(' · '),
+          locked = kind === 'model' ? lockedM === id : lockedP === id,
+          off = !q ? 'train this hand first' : kind === 'mapping' && !camOk.includes(id) ? 'train again to unlock' : '';
+        return `<button type="button" class="aimOpt${locked ? ' sel' : ''}" data-kind="${kind}" data-id="${id}" aria-pressed="${locked}"${off ? ' disabled' : ''}>
+          <span class="aimTop"><b>${aimName(kind, id)}</b><span class="aimPct">${pct(big)}</span></span>
+          <span class="aimBar" aria-hidden="true"><i style="width:${big == null ? 0 : Math.round(big * 100)}%"></i></span>
+          <small>${AIM_TEXT[id] || ''}</small>
+          <small>${st.rounds ? `${parts || 'no hits counted yet'} · from ${st.rounds} round${st.rounds === 1 ? '' : 's'}` : 'not played yet'}${off ? ` · ${off}` : ''}</small>
+          ${best ? '<span class="aimBest">★ Best for you so far</span>' : ''}
+        </button>`;
+      };
+      const enough = (kind) => (kind === 'model' ? [...MODEL_IDS, 'adaptive'] : MAPPING_IDS).some((id) => aimStats(h, kind, id).popRounds >= 3);
+      $('aimBody').innerHTML = `
+        <div class="aimList"><button type="button" class="aimOpt${!lockedM && !lockedP ? ' sel' : ''}" data-kind="trial" aria-pressed="${!lockedM && !lockedP}"${q ? '' : ' disabled'}>
+          <span class="aimTop"><b>🎲 Keep comparing</b></span><small>Try them in turn, so each one gets a fair number of rounds.</small></button></div>
+        <h3>How the cursor follows your hand</h3>
+        ${enough('model') ? '' : '<p class="muted">Play a few more rounds to compare: an option needs 3 pop rounds to be marked best.</p>'}
+        <div class="aimList">${[...MODEL_IDS, 'adaptive'].map((id) => opt('model', id)).join('')}</div>
+        <h3>How the camera picture becomes the screen</h3>
+        ${enough('mapping') ? '' : '<p class="muted">Play a few more rounds to compare: an option needs 3 pop rounds to be marked best.</p>'}
+        <div class="aimList">${MAPPING_IDS.map((id) => opt('mapping', id)).join('')}</div>`;
+      $('aimNow').textContent = !q
+        ? `Your ${h.toLowerCase()} hand isn’t trained yet: train it first to choose. The percentages still show.`
+        : `Now: ${lockedM ? aimName('model', lockedM) : 'taking turns'} for the cursor, ${lockedP ? aimName('mapping', lockedP) : 'taking turns'} for the camera.`;
+      $('aimBody').querySelectorAll('.aimOpt').forEach((b) => {
+        b.onclick = () => {
+          const kind = b.dataset.kind,
+            id = b.dataset.id;
+          if (kind === 'trial') {
+            lockModel(h, '');
+            lockMapping(h, '');
+          } else if (kind === 'model') lockModel(h, id);
+          else lockMapping(h, id);
+          showAim();
+        };
+      });
+    }
+    $('aimR').onclick = () => {
+      aimHand = 'Right';
+      showAim();
+    };
+    $('aimL').onclick = () => {
+      aimHand = 'Left';
+      showAim();
+    };
+    $('aimBack').onclick = () => {
+      $('aim').hidden = true;
+      $(aimFrom).hidden = false;
+    };
+    // the end card says so when the option just played has become the best for that hand
+    function aimNews(h, st, before) {
+      const out = [];
+      for (const kind of ['model', 'mapping']) {
+        const id = kind === 'model' ? st.model : st.mapping,
+          now = aimBest(h, kind);
+        if (id && now === id && before[kind] !== id) out.push(`★ ${aimName(kind, id)} is now your best ${kind === 'model' ? 'way for the cursor to follow your hand' : 'camera model'} (pop ${Math.round(aimStats(h, kind, id).pop * 100)}%)`);
+      }
+      return out.join('<br />');
+    }
     function lockModel(h, id) {
       try {
         const p = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -3639,7 +3946,7 @@
     }
     $('cmpBack').onclick = () => {
       $('compare').hidden = true;
-      $(localStorage.getItem(KEY) && step === 'done' ? 'done' : 'intro').hidden = false;
+      $(typeof cmpFrom === 'string' && cmpFrom ? cmpFrom : localStorage.getItem(KEY) && step === 'done' ? 'done' : 'intro').hidden = false;
     };
     $('cmpClear').onclick = () => {
       if (!$('cmpClear').classList.contains('warnbtn')) {
@@ -3849,7 +4156,7 @@
     function openShare(from) {
       const p = payload();
       if (!p) {
-        const m = $(from === 'done' ? 'doneMsg' : from === 'gameEnd' ? 'gameHint' : 'carryHint');
+        const m = $({ done: 'doneMsg', intro: 'introMsg', gameEnd: 'gameHint', carryEnd: 'carryHint' }[from] || 'doneMsg');
         if (m) m.textContent = 'Train a hand first: sharing needs a saved profile.';
         return;
       }
@@ -3942,7 +4249,7 @@
       }
     }
     function startGame() {
-      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       $('gComboL').textContent = 'Combo';
       $('gBestL').textContent = 'Best';
@@ -4451,7 +4758,7 @@
       CARRY_SIZES = [170, 130, 100];
     let C = null;
     function startCarry() {
-      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd'].forEach((id) => ($(id).hidden = true));
+      ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       // the HUD's labels for this game, and no prompt timer left over from an earlier round
       $('gComboL').textContent = '📦 Delivered';
@@ -4745,7 +5052,7 @@
       $('cam').hidden = true;
       SND.finish();
       G = G || {};
-      G.over = { t0: performance.now(), wasPinch: true, openSince: 0, btns: ['carryAgain', 'carryUndo', 'replayBtn4', 'carryShare', 'carryBack'] };
+      G.over = { t0: performance.now(), wasPinch: true, openSince: 0, btns: ['carryAgain', 'carryAim', 'carryUndo', 'replayBtn4', 'carryShare', 'carryBack'] };
       const h = C.hand || HAND,
         d = C.done,
         err = d.length ? median(d.map((x) => x.errPx)) : null,
@@ -4757,6 +5064,7 @@
         lt = lightRoundEnd();
       saveChooser(C, h);
       endTrialRound(C, h);
+      const aimB0 = { model: aimBest(h, 'model'), mapping: aimBest(h, 'mapping') };
       hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'carry', hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: C.model === 'adaptive' ? C.choices : null, features: C.features || [], use: C.use || null, mapping: C.mapping || null, distCm: lt.distCm ?? null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
@@ -4779,6 +5087,8 @@
       rows.push(['Tracking', tune.changes && tune.changes.length ? (tune.reverted ? 'your ' : 'tuned for your ') + h.toLowerCase() + ' hand: ' + tune.changes.join(' · ') + (tune.reverted ? '' : '. If the next round is clearly worse, it’s undone by itself.') : tune.note || '–']);
       C.tune = tune;
       $('carryUndo').hidden = !tune.undo;
+      const newsC = aimNews(h, C, aimB0);
+      if (newsC) rows.unshift(['Aim', newsC]);
       $('carrySum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
       $('carryEnd').hidden = false;
       $('carryHint').hidden = false;
@@ -4811,6 +5121,7 @@
         lt = lightRoundEnd();
       saveChooser(G, h);
       endTrialRound(G, h);
+      const aimB0 = { model: aimBest(h, 'model'), mapping: aimBest(h, 'mapping') };
       hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), effWHits: effWidthHits(), tp: throughput(), model: G.model || null, choices: G.model === 'adaptive' ? G.choices : null, features: G.features || [], use: G.use || null, mapping: G.mapping || null, distCm: lt.distCm ?? null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
@@ -4834,23 +5145,39 @@
       const tune = gameTune(h, acc, presses);
       rows.push(['Tracking', tune.changes && tune.changes.length ? (tune.reverted ? 'your ' : 'tuned for your ') + h.toLowerCase() + ' hand: ' + tune.changes.join(' · ') + (tune.reverted ? '' : '. If the next round is clearly worse, it’s undone by itself.') : tune.note || '–']);
       G.tune = tune;
+      const newsG = aimNews(h, G, aimB0);
+      if (newsG) rows.unshift(['Aim', newsG]);
       $('gameSum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
       $('gameUndo').hidden = !tune.undo;
       $('gameEnd').hidden = false;
       $('gameHint').hidden = false;
     }
     // on the end card your hand works the buttons: move onto one and pinch, the same deliberate press as everywhere else
-    function overFrame(f, t) {
-      const o = G.over;
-      const onShare = !$('share').hidden && (shareFrom === 'gameEnd' || shareFrom === 'carryEnd');
-      if (!o || (!onShare && $('gameEnd').hidden && $('carryEnd').hidden)) return;
-      const btns = (onShare ? ['shareGo', 'shareGamesLbl', 'shareBack'] : o.btns || ['gameAgain', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack']).map((id) => $(id)).filter((b) => !b.hidden),
-        fp = FLD.step(f, btns.map(rectItem), t, curSnap, curHold);
+    // ---- the menus by hand: on whichever card is showing, every visible button, link and option chip is a target, with the
+    // same hold and the same deliberate press (a fresh pinch after an open hand) as the end cards
+    const MENU_CARDS = ['aim', 'share', 'compare', 'gameEnd', 'carryEnd', 'done', 'intro'];
+    function cardButtons() {
+      const card = MENU_CARDS.map((id) => $(id)).find((c) => c && !c.hidden);
+      if (!card) return [];
+      return [...card.querySelectorAll('button, a.btn, .chips label, #shareGamesLbl')].filter((b) => {
+        if (b.hidden || b.disabled || b.closest('[hidden]')) return false;
+        const r = b.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+      });
+    }
+    const MENU = { on: false, t0: 0, wasPinch: true, openSince: 0, buf: 0 };
+    function menuFrame(f, t) {
+      if (!MENU.on) Object.assign(MENU, { on: true, t0: performance.now(), wasPinch: true, openSince: 0, buf: 0 });
+      pressFrame(cardButtons(), MENU, f, t);
+    }
+    function pressFrame(btns, o, f, t) {
+      const fp = FLD.step(f, btns.map(rectItem), t, curSnap, curHold);
       showCur(fp.x, fp.y);
       const hot = fp.cap;
+      document.querySelectorAll('.card .hot').forEach((b) => b !== hot && b.classList.remove('hot'));
       btns.forEach((b) => b.classList.toggle('hot', b === hot));
       if (!f.pinch) o.openSince = o.openSince || t;
-      // not in the first second (the round's last pinch can't press anything), and only a fresh pinch after an open hand
+      // not in the first second (the last pinch can't press anything), and only a fresh pinch after an open hand
       const fresh = f.pinch && !o.wasPinch && o.openSince && t - o.openSince > 200 && performance.now() - o.t0 > 1000,
         hit = pressTarget(fp, fresh, f, t, o);
       if (hit) {
@@ -4861,6 +5188,16 @@
       }
       if (f.pinch) o.openSince = 0;
       o.wasPinch = f.pinch;
+    }
+    function overFrame(f, t) {
+      const o = G.over;
+      if (!o) return;
+      const onShare = !$('share').hidden && (shareFrom === 'gameEnd' || shareFrom === 'carryEnd'),
+        endUp = !$('gameEnd').hidden || !$('carryEnd').hidden,
+        ids = onShare ? ['shareGo', 'shareGamesLbl', 'shareBack'] : endUp ? o.btns || ['gameAgain', 'gameAim', 'gameUndo', 'replayBtn2', 'gameShare', 'gameBack'] : null,
+        btns = ids ? ids.map((id) => $(id)).filter((b) => b && !b.hidden) : cardButtons();
+      if (!btns.length) return;
+      return pressFrame(btns, o, f, t);
     }
 
     // ---- the replay log: what the tracker saw and what the page showed, frame by frame, so a problem can be watched again
@@ -4922,7 +5259,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.38',
+        app: 'v0.39',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -5265,15 +5602,18 @@
       let f = feat(L, t, W, label);
       if (step === 'game' || step === 'carry') trackStill(f, t);
       const c = $('cur');
-      if (step === 'game' || step === 'carry' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
+      const menu = !step || step === 'done';
+      if (!menu) MENU.on = false;
+      if (menu || step === 'game' || step === 'carry' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
       recFrame(t, L, f, label, REC.nHands || 1, false);
       dodge(f, t);
-      const ok = step === 'ask' || step === 'done' || step === 'game' || step === 'carry' || step === 'gameover' || checkHand(label, t);
+      const ok = menu || step === 'ask' || step === 'done' || step === 'game' || step === 'carry' || step === 'gameover' || checkHand(label, t);
       c.hidden = false;
       c.style.left = f.x + 'px';
       c.style.top = f.y + 'px';
       c.classList.toggle('pinch', f.pinch);
       if (step !== 'pinch') c.style.setProperty('--p', clamp((0.75 - f.pr) / 0.45, 0, 1));
+      if (menu) return menuFrame(f, t);
       if (!ok) return;
       if (step === 'reach') reachFrame(f, t);
       else if (step === 'pinch') pinchFrame(f, t);
@@ -5505,6 +5845,28 @@
       startGame();
     };
     $('gameAgain').onclick = () => startGame();
+    $('aimBtn').onclick = () => openAim('intro');
+    $('aim2').onclick = () => openAim('done');
+    $('gameAim').onclick = () => openAim('gameEnd', G.hand || HAND);
+    $('carryAim').onclick = () => openAim('carryEnd', (C && C.hand) || HAND);
+    $('aimPlay').onclick = async () => {
+      if (!(await startCamera($('aimMsg')))) return;
+      startGame();
+    };
+    $('aimCarry').onclick = async () => {
+      if (!(await startCamera($('aimMsg')))) return;
+      startCarry();
+    };
+    let cmpFrom = null;
+    $('cmpBtn').onclick = () => {
+      cmpFrom = 'intro';
+      showCompare();
+    };
+    $('cmp2').onclick = () => {
+      cmpFrom = 'done';
+      showCompare();
+    };
+    $('shareBtn0').onclick = () => openShare('intro');
     $('carry').onclick = async () => {
       if (!(await startCamera($('introMsg')))) return;
       startCarry();
@@ -5654,6 +6016,7 @@
     window.trainCarryEnd = endCarry;
     window.trainGameTune = gameTune;
     window.trainOverFrame = overFrame;
+    window.trainMenu = { frame: menuFrame, buttons: cardButtons, open: openAim, stats: aimStats, best: aimBest, lockMapping, state: () => MENU };
     window.trainBallistic = ballistic;
     window.trainPress = pressTarget;
     window.trainField = Field;

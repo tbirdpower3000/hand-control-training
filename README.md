@@ -1,4 +1,4 @@
-# Hand control training (v0.38)
+# Hand control training (v0.39)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -36,6 +36,16 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 The profile (a few numbers) is saved in your browser. The atlas, which lives on the same site, picks it up the next time you start hand control, and its 🎯 Adaptive aim keeps fine-tuning it as you go. You can also download the profile as a file and open it in the atlas with "Open a planet pack".
 
 **v0.38.** A carried disc keeps up with your hand: the extra hold that stops a pinch from dragging the cursor now lasts only while the fingers are closing or opening, not for the whole held pinch, so the disc no longer trails 60–170 px behind and creeps the last few centimetres into the square. The precision figure counts your misses too, so it no longer understates the spread of a shaky hand, and the end card now gives the width you land 96% of pops within. A button's highlight no longer flickers when the cursor sits at its edge: it comes on at the edge but goes off only once the cursor is clearly outside, by about your own measured wobble.
+
+## Choosing your aim
+
+The first card is a set of big tiles: **Train**, **Pop the bubbles**, **Carry the disc**, **Choose your aim**, **Compare**, **Share results** and **Back to the atlas**. Once the camera is on, your hand works every card: move onto a tile, button or option and pinch, the same deliberate pinch as everywhere else, so you can go from game to game without the mouse.
+
+**🎯 Choose your aim** shows, for each hand, every way the cursor can follow your hand (palm centre, index fingertip, virtual fingertip, fitted palm, adaptive) and every way the camera picture can become the screen (flat box, eye-anchored, eye-anchored with the nine-point fit, arm angle). For each one it gives your hit percentage from the rounds you played with it: in the pop game, the share of your pinches that popped a bubble; in the carry game, the share of carries that landed in the square. The one with the best pop percentage over at least 3 rounds is marked **★ Best for you so far**. Tap or pinch an option to use it from now on for that hand, or **🎲 Keep comparing** to go back to trying them in turn. Percentages from a few rounds can change a lot; about 10 rounds per option give a fair comparison. The end cards have the same button, and say when the option you just played has become your best.
+
+## Distance
+
+Once the camera is on, the first card's "Where do you sit from the camera?" answer is filled in for you from the gap between your eyes (the pupils are about 6.3 cm apart, so their gap in the picture tells how far away you are), with the distance shown beside it. You can still choose another answer yourself. During the games a small 📏 chip beside the light shows the distance; if you sit closer than about 40 cm or further than about 1.5 m for a few seconds it suggests moving, and if you sit more than 20% nearer or further than when you trained it says so (the eye-anchored camera models adjust by themselves; with the flat box a quick retrain fits the new distance). Each round keeps its typical distance, and the comparison page groups your rounds by distance next to the lighting.
 
 ## Lighting
 
