@@ -1,4 +1,4 @@
-# Hand control training (v0.27)
+# Hand control training (v0.28)
 
 A one-minute training page for the webcam hand control in the [Planetary Modeling Atlas](https://tbirdpower3000.github.io/planetary-atlas-v15mk2/). It teaches the atlas how *your* hand moves, so the cursor reaches the whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
 
@@ -17,6 +17,11 @@ A one-minute training page for the webcam hand control in the [Planetary Modelin
 **🎈 Pop the bubbles** is an optional 45-second game (on the first card and the summary): bubbles of three sizes (36, 56 and 84 px; small ones score more) fall from the top and you pinch them. The end card shows how many of each size you popped and your precision: the spread of your pops around the bubbles' centres as an effective width (4.133 × the standard deviation, as in pointing studies), the size of target you hit almost every time. It uses the trained settings of the hand you play with, gets faster as you score, slows down after three get away in a row, and pauses while your hand rests below the waist line. Scores go to the private history only. After each round with at least 8 pinches it also fine-tunes the saved settings of the hand that played (pinch thresholds in the image and in 3D, and the pull onto buttons), moving 30% of the way toward what the round measured. Each change is a trial: if the next round with that hand is clearly worse, it is undone by itself, and there is an Undo button. Only trained hands are tuned. On the end card your hand works the buttons, so you can pinch 🎈 Play again without touching the mouse.
 
 **Buttons as lenses.** On the rating question, the game's end card and the bubbles, each target bends the cursor like a lens bends light (Snell's law, n₁ sin θ₁ = n₂ sin θ₂): the cursor slows and bends toward it on the way in, a jitter inside moves it only a fraction as far, and sliding along the edge is reflected back in, so only a deliberate move outward gets out. While the fingers close for a pinch it holds on harder. The Targets step has no lenses, because it measures your own aim. In tests, with ±12 px of jitter at a button's edge the cursor flickered on and off it once in 10 s instead of 111 times.
+
+**Tricks from game design** (in the game, the rating question and the end card; the measuring steps stay untouched):
+- *Speed-based gain*, as on a mouse or console: slow hand movements move the cursor less (down to 45%) for precision, quick ones move it fully; it never strays more than 60 px from your hand.
+- *Forgiving presses*: a pinch up to 150 ms after the cursor slips off a target still counts for it, and a pinch up to 150 ms early counts when you arrive with the fingers still closed. Small bubbles have an invisible hit area bigger than they look (40 px from the centre).
+- *A press you can feel*: the target bounces and a ring bursts from where you pressed.
 
 **🎞 Replay** draws what happened in the last few minutes (targets, prompts, the cursor and its trail, presses, and the tracked hand points with the waist line) so a problem can be watched again. You can download the replay log and send it in, or open one. It holds no camera picture, stays in the tab until you reload, and is never sent anywhere by itself.
 

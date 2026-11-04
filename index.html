@@ -240,6 +240,43 @@
     border-color: var(--good);
     background: rgba(125, 255, 154, 0.16);
   }
+  /* a press you can feel: the button gives a quick bounce and a ring bursts from where you pressed */
+  .juice-ring {
+    position: fixed;
+    z-index: 101;
+    pointer-events: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 3px solid var(--gold);
+    transform: translate(-50%, -50%);
+    animation: juiceRing 0.42s ease-out forwards;
+  }
+  @keyframes juiceRing {
+    to {
+      width: 92px;
+      height: 92px;
+      opacity: 0;
+      border-width: 1px;
+    }
+  }
+  .juiced {
+    animation: juiceBounce 0.28s ease-out;
+  }
+  @keyframes juiceBounce {
+    0% {
+      scale: 1;
+    }
+    35% {
+      scale: 0.9;
+    }
+    70% {
+      scale: 1.06;
+    }
+    100% {
+      scale: 1;
+    }
+  }
   /* the pop game: bubbles fall from the top; pinch on one to pop it */
   .bubble {
     border-radius: 50%;
@@ -708,7 +745,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.27, 3 Nov 2026">v0.27</div>
+<div id="ver" title="Hand control training, version 0.28, 3 Nov 2026">v0.28</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label></div>
@@ -728,7 +765,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.27 · 3 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.28 · 3 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1811,6 +1848,8 @@
         this.reset();
       }
       reset() {
+        this.lastCap = null;
+        this.lastCapT = 0;
         this.p = null;
         this.raw = null;
         this.prev = new Map(); // each item's centre last frame, to carry the cursor with a moving bubble
@@ -1917,7 +1956,14 @@
               cap = it;
               break;
             }
-        return { x: px, y: py, cap: cap ? cap.key : null, n: fin.n };
+        // late-press forgiveness: for 150 ms after the cursor slips off a target, a press still counts for it
+        if (cap) {
+          this.lastCap = cap.key;
+          this.lastCapT = t;
+        }
+        const recent = cap ? cap.key : this.lastCap && t - this.lastCapT < 150 && items.some((it) => it.key === this.lastCap) ? this.lastCap : null;
+        const under = items.find((it) => it.dist(f.x, f.y) <= 0); // the target under the hand itself
+        return { x: px, y: py, cap: cap ? cap.key : null, recent, hand: under ? under.key : null, n: fin.n };
       }
     }
     const rectItem = (el) => {
@@ -1934,6 +1980,77 @@
     const FLD = new Field();
     // a shakier hand gets stronger lenses: 2 for a steady one, up to 4
     const lensFor = (wobble) => +clamp(2 + Math.max(0, (wobble || 0) - 2) / 4, 2, 4).toFixed(2);
+
+    // ---- tricks from game design
+    // 1. speed-based gain (pointer ballistics, as on a mouse or a console): slow hand movements move the cursor less than
+    //    the hand (down to 45%), for precision; quick ones move it fully. The cursor drifts back to where the hand points
+    //    (quickly during fast moves, gently during slow ones) and never strays more than 60 px from it, so the two never
+    //    part for long. Used in the game, the rating question and the end card; not in the measuring steps.
+    const BALS = { x: null, y: null, ax: 0, ay: 0, t: 0 };
+    function ballistic(f, t) {
+      const B = BALS;
+      if (B.x == null || t - B.t > 300) {
+        B.x = B.ax = f.x;
+        B.y = B.ay = f.y;
+        B.t = t;
+        return f;
+      }
+      const dt = Math.max(0.008, (t - B.t) / 1000),
+        dx = f.x - B.ax,
+        dy = f.y - B.ay,
+        v = Math.hypot(dx, dy) / dt,
+        u = clamp((v - 120) / 580, 0, 1),
+        g = 0.45 + 0.55 * u * u * (3 - 2 * u);
+      B.x += dx * g;
+      B.y += dy * g;
+      const k = 1 - Math.exp(-dt / (v > 500 ? 0.12 : 0.9));
+      B.x += (f.x - B.x) * k;
+      B.y += (f.y - B.y) * k;
+      const ox = B.x - f.x,
+        oy = B.y - f.y,
+        o = Math.hypot(ox, oy);
+      if (o > 60) {
+        B.x = f.x + (ox * 60) / o;
+        B.y = f.y + (oy * 60) / o;
+      }
+      B.ax = f.x;
+      B.ay = f.y;
+      B.t = t;
+      return Object.assign({}, f, { x: B.x, y: B.y });
+    }
+    // 2. forgiving presses: a press just after slipping off a target counts (the lens's "recent" target, 150 ms), and a
+    //    press a moment early counts when the cursor arrives while the fingers are still closed (also 150 ms)
+    function pressTarget(fp, fresh, f, t, st) {
+      if (fresh) {
+        if (fp.recent) return fp.recent;
+        st.buf = t;
+        return null;
+      }
+      if (st.buf && f.pinch && t - st.buf < 150 && (fp.cap || fp.hand)) {
+        st.buf = 0;
+        return fp.cap || fp.hand; // the lens slows the cursor while the fingers close, so the hand itself arriving counts too
+      }
+      if (st.buf && (!f.pinch || t - st.buf >= 150)) {
+        st.buf = 0;
+        st.expired = true; // a press that found nothing: the caller can count it as a miss now
+      }
+      return null;
+    }
+    // 3. a press you can feel: a quick bounce of the target and a ring bursting from where you pressed
+    function juice(x, y, el) {
+      const r = document.createElement('div');
+      r.className = 'juice-ring';
+      r.style.left = x + 'px';
+      r.style.top = y + 'px';
+      document.body.appendChild(r);
+      setTimeout(() => r.remove(), 450);
+      if (el) {
+        el.classList.remove('juiced');
+        void el.offsetWidth;
+        el.classList.add('juiced');
+      }
+    }
+    const ASKP = {};
     let askPinch = true,
       askOpen = 0;
     function askFrame(f, t) {
@@ -1943,7 +2060,12 @@
       showCur(fp.x, fp.y);
       const hot = fp.cap;
       btns.forEach((b) => b.classList.toggle('hot', b === hot));
-      if (f.pinch && !askPinch && hot && askOpen && t - askOpen > 250 && t - askT0 > 500 && t - askT1 > 500) hot.click();
+      const fresh = f.pinch && !askPinch && askOpen && t - askOpen > 250 && t - askT0 > 500 && t - askT1 > 500,
+        hit = pressTarget(fp, fresh, f, t, ASKP);
+      if (hit) {
+        juice(fp.x, fp.y, hit);
+        hit.click();
+      }
       if (f.pinch) askOpen = 0;
       askPinch = f.pinch;
     }
@@ -2448,16 +2570,28 @@
         const back = G.trail.find((q) => t - q[0] <= 150) || G.trail[0];
         if (back) G.drift.push(Math.hypot(f.x - back[1], f.y - back[2]));
       }
-      if (fresh && !gamePaused(performance.now())) {
-        // the lens's captured bubble pops; precision is still measured from where your hand pointed (f), not the pulled cursor
-        if (fp.cap) popBubble(fp.cap, t, f);
-        else if (best && bd < 14) popBubble(best, t, f);
-        else if (best && bd < 120) {
-          szStat(best.size).miss++;
-          G.missD.push(bd);
-          G.missPress++;
-          G.combo = 0;
-          note(330, 0, 0.04, 0.15);
+      if (!gamePaused(performance.now())) {
+        // the lens's captured bubble pops (or the one it held a moment ago, or the one it reaches a moment after an early
+        // press); otherwise a bubble within its invisible hit area, which is bigger than the drawn bubble for the small ones
+        // (at least 40 px from the centre). Precision is measured from where your hand pointed (f), not the pulled cursor.
+        const hit = pressTarget(fp, fresh, f, t, G);
+        if (hit && G.bubbles.includes(hit)) popBubble(hit, t, f);
+        else if (fresh && best && bd < Math.max(14, 40 - best.r)) {
+          G.buf = 0;
+          popBubble(best, t, f);
+        } else if (fresh && best) G.bufMiss = { bd, best };
+        // the press found nothing, even after waiting for an early one: now it's a miss
+        if (G.expired) {
+          G.expired = false;
+          const m = G.bufMiss;
+          G.bufMiss = null;
+          if (m && m.bd < 120) {
+            szStat(m.best.size).miss++;
+            G.missD.push(m.bd);
+            G.missPress++;
+            G.combo = 0;
+            note(330, 0, 0.04, 0.15);
+          }
         }
       }
       if (f.pinch) G.openSince = 0;
@@ -2490,6 +2624,7 @@
       fx_.style.left = bx(b) + 'px';
       fx_.style.top = b.y + 'px';
       fx_.textContent = '+' + pts;
+      juice(bx(b), b.y, null);
       document.body.appendChild(fx_);
       setTimeout(() => fx_.remove(), 750);
       hud();
@@ -2680,10 +2815,13 @@
       btns.forEach((b) => b.classList.toggle('hot', b === hot));
       if (!f.pinch) o.openSince = o.openSince || t;
       // not in the first second (the round's last pinch can't press anything), and only a fresh pinch after an open hand
-      if (f.pinch && !o.wasPinch && hot && o.openSince && t - o.openSince > 200 && performance.now() - o.t0 > 1000) {
+      const fresh = f.pinch && !o.wasPinch && o.openSince && t - o.openSince > 200 && performance.now() - o.t0 > 1000,
+        hit = pressTarget(fp, fresh, f, t, o);
+      if (hit) {
         SND.tap();
-        hot.classList.remove('hot');
-        hot.click();
+        juice(fp.x, fp.y, hit);
+        hit.classList.remove('hot');
+        hit.click();
       }
       if (f.pinch) o.openSince = 0;
       o.wasPinch = f.pinch;
@@ -2748,7 +2886,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.27',
+        app: 'v0.28',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -3079,8 +3217,9 @@
     }
     function frame(L, t, label, W) {
       sideHint = false;
-      const f = feat(L, t, W),
-        c = $('cur');
+      let f = feat(L, t, W);
+      const c = $('cur');
+      if (step === 'game' || step === 'ask' || step === 'gameover') f = ballistic(f, t);
       recFrame(t, L, f, label, REC.nHands || 1, false);
       dodge(f, t);
       const ok = step === 'ask' || step === 'done' || step === 'game' || step === 'gameover' || checkHand(label, t);
@@ -3349,6 +3488,8 @@
     window.trainGameEnd = endGame;
     window.trainGameTune = gameTune;
     window.trainOverFrame = overFrame;
+    window.trainBallistic = ballistic;
+    window.trainPress = pressTarget;
     window.trainField = Field;
     window.trainReplay = showReplay;
     window.trainRecLog = recLog;
