@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.53, 4 Nov 2026">v0.53</div>
+<div id="ver" title="Hand control training, version 0.54, 4 Nov 2026">v0.54</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
@@ -1198,7 +1198,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.53 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.54 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -2877,6 +2877,10 @@
     // after the four corners, five more holds (the edges' middles and the middle) for the camera models' fit; only the
     // corners get a question
     const REACH_PTS = [...CORNERS, ['top middle', 0.5, 0.16], ['right middle', 0.88, 0.5], ['bottom middle', 0.5, 0.84], ['left middle', 0.12, 0.5], ['middle', 0.5, 0.5]];
+    // a hold only counts once the hand has actually travelled to a new spot: at least this far (in the hand's own
+    // normalized coordinates) from the last hold it completed. Without it a hand held still while you read the prompt
+    // would complete one point, then the next, then the next, from the same place — the points "selecting themselves".
+    const REACH_MIN_TRAVEL = 0.1;
     function startReach() {
       step = 'reach';
       mark('reach');
@@ -2903,6 +2907,13 @@
     }
     function reachFrame(f, t) {
       if (f.pinch || S.wait) return; // S.wait: this corner is done and its question is coming up
+      // a gap since the last frame means the hand was lost: start this hold afresh, so a stale buffer from before the
+      // dropout can't complete the point on its own the moment the hand comes back
+      if (S.lastF != null && t - S.lastF > 500) {
+        S.hold = [];
+        S.camHold = [];
+      }
+      S.lastF = t;
       S.hold.push([t, f.mx, f.my]);
       while (S.hold.length && t - S.hold[0][0] > 1200) S.hold.shift();
       // the camera models' numbers for this frame: the palm's size, the eyes (if seen just now) and the picture's size
@@ -2919,11 +2930,18 @@
         ys = S.hold.map((h) => h[2]);
       const spread = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
       if (spread > 0.03) return; // still moving
-      S.pts.push([median(xs), median(ys)]);
+      const hx = median(xs),
+        hy = median(ys);
+      // the travel gate: only count this still hold once the hand has moved a real distance from the last point it
+      // completed. The reach measures your comfortable area, which may not be on the drawn circle, so we never ask the
+      // cursor to be near the target — only that you actually moved to a new spot before holding still again.
+      const prev = S.pts[S.pts.length - 1];
+      if (prev && Math.hypot(hx - prev[0], hy - prev[1]) < REACH_MIN_TRAVEL) return;
+      S.pts.push([hx, hy]);
       const ch = S.camHold,
         col = (k) => ch.map((r) => r[k]).filter((v) => v != null && isFinite(v)),
         medOr = (k) => (col(k).length >= ch.length / 2 ? median(col(k)) : null);
-      S.holds.push(ch.length ? { hx: median(xs), hy: median(ys), palmPx: medOr(1), palmCmW: medOr(2), ipd: medOr(3), ex: medOr(4), ey: medOr(5), Wv: ch[0][6], Hv: ch[0][7] } : null);
+      S.holds.push(ch.length ? { hx, hy, palmPx: medOr(1), palmCmW: medOr(2), ipd: medOr(3), ex: medOr(4), ey: medOr(5), Wv: ch[0][6], Hv: ch[0][7] } : null);
       S.ms = S.ms || [];
       S.ms.push(t - (S.cT0 || t));
       S.el.classList.add('got');
@@ -6521,7 +6539,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.53',
+        app: 'v0.54',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -6876,20 +6894,60 @@
       x.fillText(text, 0, dy);
       x.restore();
     }
-    // draw every hand in view, the active one bright and the others faint, each with its side tag
+    // a chunky cartoon hand from the 21 landmarks: fat rounded fingers and a palm, drawn as a bold outline with a see-through
+    // fill so your real hand shows inside it. The outline is a wider stroke drawn behind a narrower translucent one.
+    function handStrokes(x, L, cw, ch, w, col, fillPalm) {
+      const pt = (i) => [L[i].x * cw, L[i].y * ch];
+      x.strokeStyle = col;
+      x.lineWidth = w;
+      x.lineJoin = 'round';
+      x.lineCap = 'round';
+      if (fillPalm) {
+        x.fillStyle = col;
+        x.beginPath();
+        [0, 1, 5, 9, 13, 17].forEach((i, k) => {
+          const [a, b] = pt(i);
+          k ? x.lineTo(a, b) : x.moveTo(a, b);
+        });
+        x.closePath();
+        x.fill();
+      }
+      [
+        [0, 1, 2, 3, 4],
+        [0, 5, 6, 7, 8],
+        [0, 9, 10, 11, 12],
+        [0, 13, 14, 15, 16],
+        [0, 17, 18, 19, 20],
+      ].forEach((f) => {
+        x.beginPath();
+        f.forEach((i, k) => {
+          const [a, b] = pt(i);
+          k ? x.lineTo(a, b) : x.moveTo(a, b);
+        });
+        x.stroke();
+      });
+    }
+    function drawCartoonHand(x, L, cw, ch, rgb, active) {
+      const span = Math.hypot((L[0].x - L[9].x) * cw, (L[0].y - L[9].y) * ch),
+        fat = Math.max(12, span * 0.42),
+        edge = Math.max(4, fat * 0.24);
+      x.save();
+      handStrokes(x, L, cw, ch, fat + 2 * edge, `rgba(${rgb},${active ? 1 : 0.85})`, false); // the bold outline, behind
+      handStrokes(x, L, cw, ch, fat, `rgba(10,14,22,${active ? 0.5 : 0.42})`, true); // a dark see-through core so the outline reads
+      handStrokes(x, L, cw, ch, fat - 2, `rgba(${rgb},${active ? 0.2 : 0.12})`, true); // a faint colour wash inside
+      x.restore();
+    }
+    // draw every hand in view as a cartoon outline, the active one gold and bright, the others a faint blue, each tagged
     function drawHandsNow(x, cw, ch, activeL) {
       const hands = HANDS_NOW || [];
       if (!hands.length) {
-        if (activeL) drawSkeleton(x, activeL, cw, ch);
+        if (activeL) drawCartoonHand(x, activeL, cw, ch, '255,216,138', true);
         return;
       }
       for (const h of hands) {
         const active = h.L === activeL,
           tag = h.label === 'Left' ? 'L' : h.label === 'Right' ? 'R' : '•';
-        x.save();
-        x.globalAlpha = active ? 1 : 0.45;
-        drawSkeleton(x, h.L, cw, ch);
-        x.restore();
+        drawCartoonHand(x, h.L, cw, ch, active ? '255,216,138' : '150,185,230', active);
         drawHandLabel(x, h.L, cw, ch, tag, active);
       }
     }
