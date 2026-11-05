@@ -1010,7 +1010,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.44, 4 Nov 2026">v0.44</div>
+<div id="ver" title="Hand control training, version 0.46, 4 Nov 2026">v0.46</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label></div>
@@ -1031,7 +1031,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.44 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.46 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1244,6 +1244,178 @@
 <script>
   (() => {
     const $ = (id) => document.getElementById(id);
+    // ---- game-feel helpers (juice): particle bursts, screen-shake, hit-stop, punch-scale, combo sound, haptics.
+    const Feel = (function () {
+  'use strict';
+  const RM = () => {
+    try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
+  };
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const now = () => performance.now();
+
+  // ---- hit-stop: a brief freeze of game motion right after a satisfying hit.
+  // The game asks `Feel.frozen(t)` in its motion step and skips integration
+  // while true. Keep the round clock running regardless.
+  let _freezeUntil = 0;
+  function hitStop(ms) { if (RM()) return; _freezeUntil = Math.max(_freezeUntil, now() + ms); }
+  function frozen(t) { return (t == null ? now() : t) < _freezeUntil; }
+
+  // ---- screen-shake. Trauma model (Nijman, "art of screenshake"): a 0..1
+  // "trauma" that decays; offset ∝ trauma^2 so small hits barely wobble and
+  // big ones kick. Read the offset where you draw.
+  let _sh = { amp: 0, until: 0, dur: 1, seed: 0 };
+  function shake(amp, ms) {
+    if (RM()) return;
+    const t = now(), live = t < _sh.until ? _sh.amp : 0;
+    _sh = { amp: Math.max(amp, live), until: t + ms, dur: ms, seed: Math.random() * 99 };
+  }
+  // {x,y} pixel offset to add inside a canvas transform (or as translate() on a
+  // visual-only wrapper). Smooth noise so it reads as a shudder, not a jitter.
+  function shakeValue(t) {
+    t = t == null ? now() : t;
+    if (t >= _sh.until) return { x: 0, y: 0 };
+    const k = (_sh.until - t) / _sh.dur, a = _sh.amp * k * k, s = _sh.seed;
+    return {
+      x: (Math.sin(t * 0.045 + s) + Math.sin(t * 0.071 + s * 2)) * 0.5 * a,
+      y: (Math.cos(t * 0.052 + s) + Math.sin(t * 0.063 + s * 3)) * 0.5 * a,
+    };
+  }
+
+  // ---- particle layer. Lazily makes one full-screen canvas (pointer-events
+  // off) that the pop and carry games — which are otherwise pure DOM — can
+  // burst onto. The fruit game already has a canvas; it can keep using its own
+  // FG.juice array and just borrow comboSound/shake/haptic. z-index 5 puts
+  // shrapnel above bubbles (z3) and the fruit canvas (z4) but below #cur (z100).
+  let cv = null, ctx = null, parts = [], raf = 0;
+  function ensure() {
+    if (cv) return;
+    cv = document.createElement('canvas');
+    cv.id = 'feelFx';
+    cv.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:5';
+    document.body.appendChild(cv);
+    ctx = cv.getContext('2d');
+    _resize();
+  }
+  function _resize() {
+    const d = window.devicePixelRatio || 1;
+    cv.width = Math.round(innerWidth * d);
+    cv.height = Math.round(innerHeight * d);
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+  }
+  function loop() {
+    raf = requestAnimationFrame(loop);
+    const t = now(), d = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(innerWidth * d)) _resize();
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    const s = shakeValue(t);
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i], dt = Math.min(0.05, (t - p.t) / 1000);
+      p.t = t;
+      p.vy += 1500 * dt * p.grav;
+      p.vx *= 1 - 2.2 * dt; // a little drag, so shrapnel decelerates
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= dt;
+      if (p.life <= 0) { parts.splice(i, 1); continue; }
+      ctx.globalAlpha = clamp(p.life / p.life0, 0, 1);
+      ctx.fillStyle = p.col;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, 7);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    if (!parts.length && t >= _sh.until) { cancelAnimationFrame(raf); raf = 0; } // idle: stop the loop
+  }
+  // burst(x, y, opts): opts = { n, speed, colors:[…], r, life, lift, grav }
+  function burst(x, y, opts) {
+    ensure();
+    const o = opts || {}, n = o.n || 14, sp = o.speed || 440,
+      cols = o.colors || ['#fff'], life = o.life || 0.5;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.283, s = sp * (0.35 + Math.random() * 0.65);
+      parts.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - (o.lift || 90),
+        r: (o.r || 3) * (0.6 + Math.random() * 0.9),
+        col: cols[(Math.random() * cols.length) | 0],
+        grav: o.grav == null ? 1 : o.grav,
+        life: life * (0.7 + Math.random() * 0.6), life0: life, t: now(),
+      });
+    }
+    if (!raf) loop();
+  }
+  // a canvas-less convenience: shake that also kicks the particle loop so the
+  // offset is actually rendered on the shared layer (use shakeValue yourself if
+  // you shake your own canvas instead).
+  function shakeFx(amp, ms) { ensure(); shake(amp, ms); if (!raf) loop(); }
+
+  // ---- punch-scale: a springy pop on a DOM element (HUD number, score, a
+  // milestone badge). Overshoots then settles — anticipation/follow-through.
+  function punch(el, s, ms) {
+    if (!el || RM()) return;
+    s = s || 1.18; ms = ms || 190;
+    const base = el.dataset.feelBase || '';
+    el.style.transition = 'transform ' + ms + 'ms cubic-bezier(.2,1.7,.3,1)';
+    el.style.transform = base + ' scale(' + s + ')';
+    clearTimeout(el._feelT);
+    el._feelT = setTimeout(() => { el.style.transform = base; }, ms);
+  }
+
+  // ---- audio: a short chime whose pitch rises with the combo n (1-based).
+  // 6 ms attack keeps the onset within ~30 ms of the visual (Swink). Triangle +
+  // two partials, like the page's note(). Pass {muted:true} when sound is off,
+  // or just keep using the page's note() and feed it a combo-scaled frequency.
+  let _ac = null;
+  function comboSound(n, opts) {
+    const o = opts || {};
+    if (o.muted) return;
+    try { _ac = _ac || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    if (_ac.state === 'suspended') _ac.resume();
+    const base = o.base || 523.25,
+      f = base * Math.pow(2, Math.min((n || 1) - 1, 16) / 12),
+      t = _ac.currentTime, vol = o.vol || 0.08;
+    [[1, 1, 0.2], [1.5, 0.5, 0.22], [2, 0.25, 0.12]].forEach(([m, a, d]) => {
+      const osc = _ac.createOscillator(), g = _ac.createGain();
+      osc.type = m === 1 ? 'triangle' : 'sine';
+      osc.frequency.value = f * m;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol * a, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      osc.connect(g).connect(_ac.destination);
+      osc.start(t); osc.stop(t + d + 0.05);
+    });
+  }
+  // a soft falling two-note "aww" for a combo break / miss — informs without
+  // punishing (low volume, descending).
+  function breakSound(opts) {
+    const o = opts || {}; if (o.muted) return;
+    try { _ac = _ac || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    if (_ac.state === 'suspended') _ac.resume();
+    const t = _ac.currentTime;
+    [[392, 0], [311.1, 0.09]].forEach(([fr, at]) => {
+      const osc = _ac.createOscillator(), g = _ac.createGain();
+      osc.type = 'sine'; osc.frequency.value = fr;
+      g.gain.setValueAtTime(0, t + at);
+      g.gain.linearRampToValueAtTime((o.vol || 0.045), t + at + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.3);
+      osc.connect(g).connect(_ac.destination);
+      osc.start(t + at); osc.stop(t + at + 0.35);
+    });
+  }
+
+  // ---- haptics (phones). Gate on your own setting; keep it short. A reduced-
+  // motion viewer may still want haptics, so this is NOT tied to RM().
+  function haptic(pattern, on) {
+    if (on === false) return;
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
+  }
+
+  return { hitStop, frozen, shake, shakeValue, shakeFx, burst, punch, comboSound, breakSound, haptic, reducedMotion: RM };
+})();
+
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
     const KEY = 'atlasHandAssist',
       FORMAT = 'planetary-atlas-hand-profile';
@@ -4360,10 +4532,11 @@
         x = d / 2 + 24 + Math.random() * (innerWidth - d - 48),
         el = tgt('bubble', x, -d / 2);
       el.style.width = el.style.height = d + 'px';
-      el.style.setProperty('--bc', BCOL[(Math.random() * BCOL.length) | 0]);
+      const col = BCOL[(Math.random() * BCOL.length) | 0];
+      el.style.setProperty('--bc', col);
       // fall speed grows with the level: about 8 s top to bottom at the start, about 2.5 s at the top level
       const v = H * (0.12 + 0.025 * G.level) * (0.85 + Math.random() * 0.3);
-      G.bubbles.push({ el, x, y: -d / 2, r: d / 2, v, born: performance.now(), drift: (Math.random() - 0.5) * 30, ph: Math.random() * 6, size: sz[0], pts: sz[2] });
+      G.bubbles.push({ el, x, y: -d / 2, r: d / 2, v, born: performance.now(), drift: (Math.random() - 0.5) * 30, ph: Math.random() * 6, size: sz[0], pts: sz[2], col });
       szStat(sz[0]).n++;
     }
     function gamePaused(now) {
@@ -4527,6 +4700,13 @@
       juice(bx(b), b.y, null);
       document.body.appendChild(fx_);
       setTimeout(() => fx_.remove(), 750);
+      // juice: shrapnel in the bubble's own colour, a punched score, a small kick and a short buzz on a phone — no hit-stop
+      // here, because the pop game's throughput is measured from the real time between pops
+      Feel.burst(bx(b), b.y, { n: 14, speed: 420, colors: [b.col, '#fff', b.col], r: 3.4, life: 0.5, grav: 1 });
+      Feel.punch(fx_, 1.35, 220);
+      Feel.punch($('gScore'));
+      Feel.shakeFx(Math.min(7, 2 + G.combo * 0.5), 180);
+      Feel.haptic(8, sndOn);
       hud();
     }
 
@@ -4956,6 +5136,11 @@
                 fx_.textContent = '+' + (10 + bonus);
                 document.body.appendChild(fx_);
                 setTimeout(() => fx_.remove(), 700);
+                // land the delivery: a burst in the zone, a punched score and a short buzz (a bigger bonus = a bigger burst)
+                Feel.burst(o.x, o.y, { n: 12 + bonus * 3, speed: 380, colors: ['#7dff9a', '#bfffd0', '#fff'], r: 3.2, life: 0.55, grav: 0.8 });
+                Feel.punch(fx_, 1.35, 220);
+                Feel.shakeFx(4, 160);
+                Feel.haptic(10, sndOn);
                 C.i++;
                 nextZone();
               } else {
@@ -5361,6 +5546,7 @@
     // move the fruit, the halves and the juice
     function fruitStep(dt) {
       const H = innerHeight;
+      if (Feel.frozen()) dt = 0; // hit-stop: hold the fruit still for a few ms after a slice (the round clock keeps running)
       for (let i = FG.fruits.length - 1; i >= 0; i--) {
         const f_ = FG.fruits[i];
         f_.vy += FG.g * dt;
@@ -5390,6 +5576,9 @@
       }
       x.setTransform(dpr, 0, 0, dpr, 0, 0);
       x.clearRect(0, 0, innerWidth, innerHeight);
+      // a brief screen-shake on a slice (trauma decays over a few frames); the next frame's setTransform resets it
+      const sh = Feel.shakeValue(now);
+      if (sh.x || sh.y) x.translate(sh.x, sh.y);
       // the camera as a still, shaded background (mirrored to match you), so you can see yourself behind the fruit without a
       // moving window; it never moves, and a dark wash over it keeps the fruit readable
       const vid = $('vid');
@@ -5519,6 +5708,8 @@
         FG.combo = 0;
         FG.flash = performance.now();
         SND.miss();
+        Feel.shake(10, 300); // a barrel: a firmer kick, so a mistake is felt
+        Feel.haptic([12, 40, 12], sndOn);
         for (let i = 0; i < 14; i++) FG.juice.push({ x: f_.x, y: f_.y, vx: (Math.random() - 0.5) * 500, vy: (Math.random() - 0.8) * 500, life: 0.5, s: 3 + Math.random() * 4, col: '#8a5a2b' });
         return;
       }
@@ -5539,6 +5730,23 @@
       const f0 = 523.25 * Math.pow(2, Math.min(sw.cut - 1, 12) / 12);
       note(f0, 0, 0.08, 0.15);
       note(f0 * 1.5, 0.04, 0.05, 0.2);
+      // juice: a brief freeze and a kick that grow with the number of fruit cut in this swipe, a short buzz, and a "xN"
+      // flourish when a single swipe takes more than one. Hit-stop is safe here: the fruit game measures from the hand
+      // buffer at real time, not from the frozen object motion.
+      Feel.hitStop(28 + Math.min(4, sw.cut) * 10);
+      Feel.shake(Math.min(9, 3 + sw.cut * 1.5), 180);
+      Feel.haptic(sw.cut > 1 ? [8, 20, 8] : 8, sndOn);
+      if (sw.cut > 1) {
+        const cx_ = document.createElement('div');
+        cx_.className = 'popfx';
+        cx_.style.left = f_.x + 'px';
+        cx_.style.top = f_.y - 28 + 'px';
+        cx_.style.color = 'var(--gold)';
+        cx_.textContent = '×' + sw.cut + '!';
+        document.body.appendChild(cx_);
+        Feel.punch(cx_, 1.5, 240);
+        setTimeout(() => cx_.remove(), 700);
+      }
     }
     // how far behind the hand the cursor runs: the time shift (0–300 ms) at which the hand's own path, shifted later,
     // lines up best with the cursor's path (the largest normalised cross-correlation of the two, x and y together)
@@ -5948,7 +6156,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.44',
+        app: 'v0.46',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
