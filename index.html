@@ -520,6 +520,23 @@
   #cur.pinch {
     background: var(--gold);
   }
+  /* a canvas style (Pincer / Comet) is painted on #curCv; #cur still carries the position and pinch, but its own ring is hidden */
+  #cur.canvasCur {
+    border-color: transparent;
+    box-shadow: none;
+    background: transparent;
+  }
+  #cur.canvasCur::after {
+    display: none;
+  }
+  #curCv {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 101;
+    pointer-events: none;
+  }
   /* the camera preview keeps out of the way: when the cursor or a target comes near, it slides to another corner */
   #cam {
     position: fixed;
@@ -1154,8 +1171,9 @@
 <div id="ver" title="Hand control training, version 0.51, 4 Nov 2026">v0.51</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
-<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label></div>
+<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
 <div id="cur" hidden></div>
+<canvas id="curCv" aria-hidden="true"></canvas>
 <div id="hudChips"><div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div><div id="distChip" hidden aria-live="polite" title="How far you sit from the camera, from the gap between your pupils (only the number is kept)">📏 <b id="distWord">–</b></div></div>
 <div id="getReady" hidden>
   <div id="grPanel">
@@ -6835,6 +6853,127 @@
       } catch (e2) {}
     };
 
+    // ---- the game cursor's look. The default is the plain CSS ring (#cur). Pincer and Comet are painted on a full-screen
+    // canvas that mirrors #cur's position, pinch and pinch-progress each frame, so the pinch logic is untouched — only the
+    // drawing changes. Chosen in the webcam controls, kept per browser.
+    const CUR = { x: 0, y: 0, p: 0, pinch: false, trail: [], pop: 0, lastPinch: false, prevT: 0, raf: 0 };
+    let curStyle = 'beacon';
+    try {
+      curStyle = localStorage.getItem('trainCurStyle') || 'beacon';
+    } catch (e) {}
+    function setCurStyle(s) {
+      curStyle = s === 'pincer' || s === 'comet' ? s : 'beacon';
+      try {
+        localStorage.setItem('trainCurStyle', curStyle);
+      } catch (e) {}
+      if (curStyle === 'beacon') {
+        $('cur').classList.remove('canvasCur');
+        CUR.trail.length = 0;
+        const cv = $('curCv');
+        cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+      }
+    }
+    if ($('curSel')) {
+      $('curSel').value = curStyle;
+      $('curSel').onchange = (e) => setCurStyle(e.target.value);
+    }
+    function curRing(x, cx, cy, r, w, col, a) {
+      x.beginPath();
+      x.arc(cx, cy, r, 0, 7);
+      x.lineWidth = w;
+      x.strokeStyle = col;
+      x.globalAlpha = a == null ? 1 : a;
+      x.stroke();
+      x.globalAlpha = 1;
+    }
+    function curDot(x, cx, cy, r, col) {
+      x.beginPath();
+      x.arc(cx, cy, r, 0, 7);
+      x.fillStyle = col;
+      x.fill();
+    }
+    function drawPincer(x, cx, cy, s, p, pinched, pop) {
+      const e = p * p * (3 - 2 * p),
+        gap = s * 0.9 * (1 - e),
+        col = pinched ? '#ffd88a' : '#fff';
+      // a dark backing so it reads on any background, then the two facing arcs
+      for (const pass of [
+        ['rgba(0,0,0,0.5)', 6],
+        [col, 4],
+      ]) {
+        x.strokeStyle = pass[0];
+        x.lineWidth = pass[1];
+        x.lineCap = 'round';
+        x.beginPath();
+        x.arc(cx - gap - 1, cy, s, Math.PI * 0.62, Math.PI * 1.38);
+        x.stroke();
+        x.beginPath();
+        x.arc(cx + gap + 1, cy, s, -Math.PI * 0.38, Math.PI * 0.38);
+        x.stroke();
+      }
+      x.lineCap = 'butt';
+      if (pinched) {
+        const r = 3 + 7 * pop,
+          g = x.createRadialGradient(cx, cy, 0, cx, cy, r + 4);
+        g.addColorStop(0, 'rgba(255,216,138,0.95)');
+        g.addColorStop(1, 'rgba(255,216,138,0)');
+        x.fillStyle = g;
+        x.beginPath();
+        x.arc(cx, cy, r + 4, 0, 7);
+        x.fill();
+        curDot(x, cx, cy, 3, '#ffd88a');
+      }
+    }
+    function drawComet(x, cx, cy, s, p, pinched, pop, trail) {
+      for (let i = 0; i < trail.length; i++) {
+        const a = (i + 1) / trail.length;
+        curDot(x, trail[i].x, trail[i].y, s * 0.55 * a, 'rgba(255,216,138,' + 0.16 * a + ')');
+      }
+      const hr = s + 10,
+        g = x.createRadialGradient(cx, cy, 0, cx, cy, hr);
+      g.addColorStop(0, 'rgba(255,216,138,0.5)');
+      g.addColorStop(0.5, 'rgba(255,216,138,0.12)');
+      g.addColorStop(1, 'rgba(255,216,138,0)');
+      x.fillStyle = g;
+      x.beginPath();
+      x.arc(cx, cy, hr, 0, 7);
+      x.fill();
+      if (p > 0.001 && !pinched) curRing(x, cx, cy, (s + 8) * (1 - p) + (s + 1) * p, 2.5, '#ffd88a', 0.9);
+      if (pop > 0.01) curRing(x, cx, cy, s + 2 + 22 * (1 - pop), 2.5, '#ffd88a', pop);
+      curDot(x, cx, cy, s * 0.62 + (pinched ? 2 : 0), '#fff');
+      curDot(x, cx, cy, s * 0.32, '#ffd88a');
+    }
+    function curPaint(t) {
+      CUR.raf = requestAnimationFrame(curPaint);
+      const cv = $('curCv'),
+        c = $('cur');
+      if (!cv || !c) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      if (cv.width !== Math.round(innerWidth * dpr)) {
+        cv.width = Math.round(innerWidth * dpr);
+        cv.height = Math.round(innerHeight * dpr);
+      }
+      const x = cv.getContext('2d');
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.clearRect(0, 0, innerWidth, innerHeight);
+      const canvasStyle = curStyle === 'pincer' || curStyle === 'comet';
+      c.classList.toggle('canvasCur', canvasStyle);
+      if (!canvasStyle || c.hidden) {
+        CUR.trail.length = 0;
+        return;
+      }
+      const dt = Math.min(0.05, (t - CUR.prevT) / 1000 || 0.016);
+      CUR.prevT = t;
+      if (CUR.pinch && !CUR.lastPinch) CUR.pop = 1;
+      CUR.lastPinch = CUR.pinch;
+      CUR.pop = Math.max(0, CUR.pop - dt / 0.4);
+      CUR.trail.push({ x: CUR.x, y: CUR.y });
+      if (CUR.trail.length > 10) CUR.trail.shift();
+      if (curStyle === 'pincer') drawPincer(x, CUR.x, CUR.y, 16, CUR.p, CUR.pinch, CUR.pop);
+      else drawComet(x, CUR.x, CUR.y, 16, CUR.p, CUR.pinch, CUR.pop, CUR.trail);
+    }
+    requestAnimationFrame(curPaint);
+
     // ---- get ready: a short countdown with a live self-view before a round, so you can confirm the camera sees your hand
     // and you're framed before it starts. It counts 3-2-1 only while a hand is tracked; if the hand is lost it waits. The
     // gate sits at the top of each game's start function, so every way of starting a round passes through it; it is skipped
@@ -7000,6 +7139,10 @@
       c.style.top = f.y + 'px';
       c.classList.toggle('pinch', f.pinch);
       if (step !== 'pinch') c.style.setProperty('--p', clamp((0.75 - f.pr) / 0.45, 0, 1));
+      CUR.x = f.x;
+      CUR.y = f.y;
+      CUR.pinch = !!f.pinch;
+      CUR.p = parseFloat(c.style.getPropertyValue('--p')) || 0;
       if (menu) return menuFrame(f, t);
       if (!ok) return;
       if (step === 'reach') reachFrame(f, t);
@@ -7437,6 +7580,7 @@
     window.trainSetModel = setModel;
     window.trainModel = () => MODEL.id;
     window.trainPickModel = pickModel;
+    window.trainCursor = { set: (o) => Object.assign(CUR, o), style: setCurStyle, get: () => ({ style: curStyle, canvasCur: $('cur').classList.contains('canvasCur') }) };
     window.trainLight = { sample: lightSample, now: lightNow, word: lightWord, R: () => LR, tick: trackTick, still: trackStill, start: lightRoundStart, end: lightRoundEnd, section: lightSection, text: lightText, cur: () => LIGHT.cur };
     window.trainLock = lockModel;
     window.trainFeat = feat;
