@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.72</div>
+<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.73</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="cur" hidden></div>
@@ -1197,7 +1197,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.72 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.73 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1278,6 +1278,14 @@
       <label><input type="radio" name="camShowOpt" value="off" checked /><span>🚫 Hide</span></label>
     </div>
     <p class="muted">Whether the webcam window shows during the games. Hiding it runs the games lighter (the window and its tracking overlay are not drawn); the fruit game shows its edge-glow guide instead.</p>
+  </fieldset>
+  <fieldset>
+    <legend>Aim assist</legend>
+    <div class="chips">
+      <label><input type="radio" name="aimAssistOpt" value="on" checked /><span>🎯 On</span></label>
+      <label><input type="radio" name="aimAssistOpt" value="off" /><span>✋ Off</span></label>
+    </div>
+    <p class="muted">In the bubble game, on: the cursor is gently pulled onto a bubble and a near-miss still counts, so popping is forgiving. Off: the cursor follows your hand exactly and you must be on the bubble — harder and more precise.</p>
   </fieldset>
   <p class="muted">
     After each step you can rate how it went from 1 to 7, or let it carry on by itself. Sit where you'll use the atlas.
@@ -5127,7 +5135,7 @@
         }
       });
       // each bubble is a field that moves with it; the captured bubble is the one a pinch pops
-      const fp = FLD.step(f, G.bubbles.map((b) => ({ key: b, cx: bx(b), cy: b.y, dist: (x, y) => Math.hypot(x - bx(b), y - b.y) - b.r })), t, curSnap, curHold);
+      const fp = FLD.step(f, aimAssist ? G.bubbles.map((b) => ({ key: b, cx: bx(b), cy: b.y, dist: (x, y) => Math.hypot(x - bx(b), y - b.y) - b.r })) : [], t, aimAssist ? curSnap : 0, curHold);
       showCur(fp.x, fp.y);
       G.capBubble = fp.cap;
       // samples for tuning: the pinch ratio of an open hand while aiming at a bubble, the firmest point of each pinch, and
@@ -5153,28 +5161,54 @@
         if (back) G.drift.push(Math.hypot(f.x - back[1], f.y - back[2]));
       }
       if (!gamePaused(performance.now())) {
-        // press); otherwise a bubble within its invisible hit area, which is bigger than the drawn bubble for the small ones
-        // (at least 40 px from the centre). Precision is measured from where your hand pointed (f), not the pulled cursor.
-        const hit = pressTarget(fp, fresh, f, t, G);
-        G.hitForgiven = !!hit && hit !== fp.cap; // a press that counted through forgiveness (late, early or by the vote)
-        if (hit && G.bubbles.includes(hit)) popBubble(hit, t, f);
-        else if (fresh && best && bd < Math.max(14, 40 - best.r)) {
-          G.buf = 0;
-          G.hitForgiven = true;
-          popBubble(best, t, f);
-        } else if (fresh && best) G.bufMiss = { bd, best };
-        // the press found nothing, even after waiting for an early one: now it's a miss
-        if (G.expired) {
-          G.expired = false;
-          const m = G.bufMiss;
-          G.bufMiss = null;
-          if (m && m.bd < 120 && !G.warm) {
-            szStat(m.best.size).miss++;
-            G.missD.push(m.bd);
-            G.missPress++;
-            G.combo = 0;
-            note(330, 0, 0.04, 0.15);
-            episodeEnd(G, 0, t);
+        if (!aimAssist) {
+          // aim assist off: only a bubble actually under the cursor pops, on a fresh pinch — no pull, no forgiveness
+          if (fresh) {
+            let onb = null,
+              od = 1e9;
+            for (const b of G.bubbles) {
+              const d = Math.hypot(fp.x - bx(b), fp.y - b.y);
+              if (d <= b.r && d < od) {
+                od = d;
+                onb = b;
+              }
+            }
+            if (onb) {
+              G.hitForgiven = false;
+              popBubble(onb, t, f);
+            } else if (!G.warm && best && bd < 120) {
+              szStat(best.size).miss++;
+              G.missD.push(bd);
+              G.missPress++;
+              G.combo = 0;
+              note(330, 0, 0.04, 0.15);
+              episodeEnd(G, 0, t);
+            }
+          }
+        } else {
+          // press); otherwise a bubble within its invisible hit area, which is bigger than the drawn bubble for the small ones
+          // (at least 40 px from the centre). Precision is measured from where your hand pointed (f), not the pulled cursor.
+          const hit = pressTarget(fp, fresh, f, t, G);
+          G.hitForgiven = !!hit && hit !== fp.cap; // a press that counted through forgiveness (late, early or by the vote)
+          if (hit && G.bubbles.includes(hit)) popBubble(hit, t, f);
+          else if (fresh && best && bd < Math.max(14, 40 - best.r)) {
+            G.buf = 0;
+            G.hitForgiven = true;
+            popBubble(best, t, f);
+          } else if (fresh && best) G.bufMiss = { bd, best };
+          // the press found nothing, even after waiting for an early one: now it's a miss
+          if (G.expired) {
+            G.expired = false;
+            const m = G.bufMiss;
+            G.bufMiss = null;
+            if (m && m.bd < 120 && !G.warm) {
+              szStat(m.best.size).miss++;
+              G.missD.push(m.bd);
+              G.missPress++;
+              G.combo = 0;
+              note(330, 0, 0.04, 0.15);
+              episodeEnd(G, 0, t);
+            }
           }
         }
       }
@@ -6895,7 +6929,7 @@
         lt = lightRoundEnd();
       endTrialRound(G, h);
       const aimB0 = { model: aimBest(h, 'model'), mapping: aimBest(h, 'mapping') };
-      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, bySize: G.sz || null, effW: effWidth(), effWHits: effWidthHits(), tp: throughput(), speed: speedScore(), v: APP_VER, model: G.model || null, choices: null, features: G.features || [], use: G.use || null, mapping: G.mapping || null, distCm: lt.distCm ?? null });
+      hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'game', hand: h, score: G.score, pops: G.pops, fell: G.fell, missPress: G.missPress, accuracy: acc, reactMs: react, bestCombo: G.bestCombo, level: G.level, trained: G.profiled, assist: aimAssist, bySize: G.sz || null, effW: effWidth(), effWHits: effWidthHits(), tp: throughput(), speed: speedScore(), v: APP_VER, model: G.model || null, choices: null, features: G.features || [], use: G.use || null, mapping: G.mapping || null, distCm: lt.distCm ?? null });
       try {
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
@@ -7034,7 +7068,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.72',
+        app: 'v0.73',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -7327,6 +7361,10 @@
     try {
       camShow = localStorage.getItem('trainCamShow') === '1'; // camera off by default; the games run lighter without the overlay
     } catch (e) {}
+    let aimAssist = true; // the cursor is gently pulled onto a bubble and near-misses count; off = raw cursor, strict hit
+    try {
+      aimAssist = localStorage.getItem('trainAimAssist') !== '0';
+    } catch (e) {}
     // the bones of a MediaPipe hand: wrist to each finger, and along each finger
     const HAND_BONES = [
       [0, 1], [1, 2], [2, 3], [3, 4],
@@ -7444,6 +7482,16 @@
           localStorage.setItem('trainCamShow', camShow ? '1' : '0');
         } catch (e2) {}
         if (step === 'game' || step === 'carry' || step === 'fruit') $('cam').hidden = !camShow;
+      };
+    });
+    document.querySelectorAll('input[name=aimAssistOpt]').forEach((r) => {
+      r.checked = (r.value === 'on') === aimAssist;
+      r.onchange = () => {
+        if (!r.checked) return;
+        aimAssist = r.value === 'on';
+        try {
+          localStorage.setItem('trainAimAssist', aimAssist ? '1' : '0');
+        } catch (e2) {}
       };
     });
 
