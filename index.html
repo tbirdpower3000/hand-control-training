@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.52, 4 Nov 2026">v0.52</div>
+<div id="ver" title="Hand control training, version 0.53, 4 Nov 2026">v0.53</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
@@ -1198,7 +1198,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.52 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.53 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -6521,7 +6521,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.52',
+        app: 'v0.53',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -6856,6 +6856,43 @@
       }
       x.restore();
     }
+    // every hand the camera sees right now (with the tracker's Left/Right label), so the self-view and the webcam window can
+    // show both hands at once and mark which is which. Set each loop from the detected hands.
+    let HANDS_NOW = [];
+    // an L / R tag by a hand's wrist. The camera picture is mirrored by CSS, so the text is flipped back to read correctly;
+    // the hand in use is gold, the other faint.
+    function drawHandLabel(x, L, cw, ch, text, active) {
+      x.save();
+      x.translate(L[0].x * cw, L[0].y * ch);
+      x.scale(-1, 1);
+      x.font = '700 ' + Math.max(13, Math.round(cw / 22)) + 'px system-ui, sans-serif';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.lineWidth = 4;
+      x.strokeStyle = 'rgba(0,0,0,0.65)';
+      x.fillStyle = active ? 'rgba(255,216,138,0.98)' : 'rgba(205,214,228,0.9)';
+      const dy = Math.max(24, ch * 0.08);
+      x.strokeText(text, 0, dy);
+      x.fillText(text, 0, dy);
+      x.restore();
+    }
+    // draw every hand in view, the active one bright and the others faint, each with its side tag
+    function drawHandsNow(x, cw, ch, activeL) {
+      const hands = HANDS_NOW || [];
+      if (!hands.length) {
+        if (activeL) drawSkeleton(x, activeL, cw, ch);
+        return;
+      }
+      for (const h of hands) {
+        const active = h.L === activeL,
+          tag = h.label === 'Left' ? 'L' : h.label === 'Right' ? 'R' : '•';
+        x.save();
+        x.globalAlpha = active ? 1 : 0.45;
+        drawSkeleton(x, h.L, cw, ch);
+        x.restore();
+        drawHandLabel(x, h.L, cw, ch, tag, active);
+      }
+    }
     $('camSkel').checked = camSkel;
     $('camSkel').onchange = (e) => {
       camSkel = e.target.checked;
@@ -7048,7 +7085,7 @@
           const x = cv.getContext('2d');
           x.clearRect(0, 0, cv.width, cv.height);
           x.drawImage(v, 0, 0, cv.width, cv.height);
-          if (LASTL) drawSkeleton(x, LASTL, cv.width, cv.height);
+          drawHandsNow(x, cv.width, cv.height, LASTL); // both hands, the active one bright, each tagged L / R
         }
         // count 3-2-1 only while a hand is actually tracked; if it's lost, hold and ask for it back
         if (hadHand && LASTL) {
@@ -7326,10 +7363,15 @@
             x.arc(p.x * cv.width, p.y * cv.height, 3, 0, 7);
             x.fill();
           });
+          drawHandLabel(x, h.L, cv.width, cv.height, h.label === 'Left' ? 'L' : h.label === 'Right' ? 'R' : '•', false);
         });
-        if (L) drawSkeleton(x, L, cv.width, cv.height); // the hand in use: full skeleton, fingertips highlighted
+        if (L) {
+          drawSkeleton(x, L, cv.width, cv.height); // the hand in use: full skeleton, fingertips highlighted
+          if (pickd) drawHandLabel(x, L, cv.width, cv.height, pickd.label === 'Left' ? 'L' : pickd.label === 'Right' ? 'R' : '•', true);
+        }
       }
       REC.nHands = all.length;
+      HANDS_NOW = all; // for the get-ready self-view (both hands, each tagged)
       // the room's light, four times a second (with the hand's box, in camera coordinates, when there is a hand)
       if (now - LIGHT.last >= 250) {
         LIGHT.last = now;
@@ -7650,6 +7692,7 @@
     window.trainPickModel = pickModel;
     window.trainCursor = { set: (o) => Object.assign(CUR, o), style: setCurStyle, get: () => ({ style: curStyle, canvasCur: $('cur').classList.contains('canvasCur') }) };
     window.trainCoast = { good: coastGood, lost: coastLost, state: () => COAST };
+    window.trainHands = { set: (h) => (HANDS_NOW = h), draw: (ctx, cw, ch, activeL) => drawHandsNow(ctx, cw, ch, activeL), label: drawHandLabel };
     window.trainLight = { sample: lightSample, now: lightNow, word: lightWord, R: () => LR, tick: trackTick, still: trackStill, start: lightRoundStart, end: lightRoundEnd, section: lightSection, text: lightText, cur: () => LIGHT.cur };
     window.trainLock = lockModel;
     window.trainFeat = feat;
