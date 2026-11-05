@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.64, 5 Nov 2026">v0.64</div>
+<div id="ver" title="Hand control training, version 0.65, 5 Nov 2026">v0.65</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
@@ -1198,7 +1198,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.64 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.65 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -6783,7 +6783,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.64',
+        app: 'v0.65',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -7206,7 +7206,7 @@
     // ---- the game cursor's look. The default is the plain CSS ring (#cur). Pincer and Comet are painted on a full-screen
     // canvas that mirrors #cur's position, pinch and pinch-progress each frame, so the pinch logic is untouched — only the
     // drawing changes. Chosen in the webcam controls, kept per browser.
-    const CUR = { x: 0, y: 0, gx: 0, gy: 0, rx: 0, ry: 0, glided: false, p: 0, pinch: false, trail: [], pop: 0, lastPinch: false, prevT: 0, raf: 0 };
+    const CUR = { x: 0, y: 0, gx: 0, gy: 0, rx: 0, ry: 0, pgx: 0, pgy: 0, vex: 0, vey: 0, glided: false, p: 0, pinch: false, trail: [], pop: 0, lastPinch: false, prevT: 0, raf: 0 };
     let curStyle = 'beacon';
     try {
       curStyle = localStorage.getItem('trainCurStyle') || 'beacon';
@@ -7345,22 +7345,33 @@
     // the cursor's target updates at the camera's rate (~30 fps); inside each game's own 60 fps loop we ease the drawn
     // cursor toward it, so it moves at the display's rate and stays in step with the bubbles. Hit-testing still reads the
     // true tracked point, so nothing about accuracy changes — this is purely how the cursor is drawn.
-    const CUR_GLIDE = 0.5; // per-frame approach toward the target; higher = snappier, lower = smoother
+    // the cursor eases toward its latest tracked target at display rate, and the smoothing tunes itself. The amount is set
+    // by a smoothed velocity VECTOR, not raw speed: a shaky hand oscillates, so its velocity vector cancels toward zero and
+    // gets heavy smoothing (the cursor stops "jumping around" while you aim), while a deliberate move accumulates and gets
+    // light smoothing (so it stays responsive). Nothing here changes hit-testing — it is purely how the cursor is drawn.
     function curGlideGame() {
       const c = $('cur');
       if (!c || c.hidden) {
         CUR.rx = CUR.gx;
         CUR.ry = CUR.gy;
+        CUR.pgx = CUR.gx;
+        CUR.pgy = CUR.gy;
         return;
       }
       if (!CUR.glided || Math.hypot(CUR.gx - CUR.rx, CUR.gy - CUR.ry) > 250) {
-        CUR.rx = CUR.gx; // first frame, or a teleport/re-acquire far away: snap, don't slide across the screen
+        CUR.rx = CUR.gx; // first frame, or a teleport / re-acquire far away: snap, don't slide across the screen
         CUR.ry = CUR.gy;
         CUR.glided = true;
+        CUR.vex = CUR.vey = 0;
       } else {
-        CUR.rx += (CUR.gx - CUR.rx) * CUR_GLIDE;
-        CUR.ry += (CUR.gy - CUR.ry) * CUR_GLIDE;
+        CUR.vex = CUR.vex * 0.8 + (CUR.gx - CUR.pgx) * 0.2; // net directional velocity; jitter averages out, motion builds up
+        CUR.vey = CUR.vey * 0.8 + (CUR.gy - CUR.pgy) * 0.2;
+        const k = clamp(0.16 + Math.hypot(CUR.vex, CUR.vey) * 0.04, 0.16, 0.55); // still/jitter → heavy; moving → responsive
+        CUR.rx += (CUR.gx - CUR.rx) * k;
+        CUR.ry += (CUR.gy - CUR.ry) * k;
       }
+      CUR.pgx = CUR.gx;
+      CUR.pgy = CUR.gy;
       c.style.left = CUR.rx + 'px';
       c.style.top = CUR.ry + 'px';
       CUR.x = CUR.rx; // keep the Pincer / Comet painter on the glided point
