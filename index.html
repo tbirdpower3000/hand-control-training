@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.51, 4 Nov 2026">v0.51</div>
+<div id="ver" title="Hand control training, version 0.52, 4 Nov 2026">v0.52</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
@@ -1198,7 +1198,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.51 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.52 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -6521,7 +6521,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.51',
+        app: 'v0.52',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -7134,6 +7134,54 @@
       cam.className = camQ;
       camT = t;
     }
+    // ---- coasting through a brief dropout. When the tracker loses the hand for a frame or two, the cursor used to vanish
+    // and then snap back when it refound. Instead it keeps gliding on its last velocity, decelerating to a stop over a short
+    // grace, and eases back to the refound point rather than jumping. This is purely how the cursor looks: the hand is still
+    // counted as lost, and the games still read the real tracked position, so nothing measured or scored changes.
+    const COAST = { x: 0, y: 0, vx: 0, vy: 0, tGood: 0, cx: 0, cy: 0, last: 0, coasting: false, reacqFrom: { x: 0, y: 0 }, reacqT: 0 };
+    const COAST_MS = 180, // glide for at most this long before giving up and hiding
+      REACQ_MS = 140; // ease from the coasted point to the refound point over this long
+    function coastGood(f, t) {
+      // a real frame: capture an ease if we were just coasting, refresh the smoothed velocity, remember the position
+      let sx = f.x,
+        sy = f.y;
+      if (COAST.coasting) {
+        COAST.reacqFrom = { x: COAST.cx, y: COAST.cy };
+        COAST.reacqT = t;
+        COAST.coasting = false;
+      }
+      if (COAST.reacqT && t - COAST.reacqT < REACQ_MS) {
+        const u0 = (t - COAST.reacqT) / REACQ_MS,
+          u = u0 * u0 * (3 - 2 * u0);
+        sx = COAST.reacqFrom.x + (f.x - COAST.reacqFrom.x) * u;
+        sy = COAST.reacqFrom.y + (f.y - COAST.reacqFrom.y) * u;
+      } else COAST.reacqT = 0;
+      if (COAST.tGood) {
+        const dtg = clamp((t - COAST.tGood) / 1000, 0.001, 0.1);
+        COAST.vx = COAST.vx * 0.5 + ((f.x - COAST.x) / dtg) * 0.5;
+        COAST.vy = COAST.vy * 0.5 + ((f.y - COAST.y) / dtg) * 0.5;
+      }
+      COAST.x = f.x;
+      COAST.y = f.y;
+      COAST.tGood = t;
+      return { x: sx, y: sy };
+    }
+    function coastLost(now) {
+      // a lost frame: glide the cursor while still inside the grace, decelerating; returns false once the grace is spent
+      if (!COAST.tGood || now - COAST.tGood >= COAST_MS) return false;
+      if (!COAST.coasting) {
+        COAST.cx = COAST.x;
+        COAST.cy = COAST.y;
+        COAST.last = now;
+        COAST.coasting = true;
+      }
+      const dt = clamp((now - COAST.last) / 1000, 0.001, 0.05);
+      COAST.last = now;
+      const decay = Math.max(0, 1 - (now - COAST.tGood) / COAST_MS);
+      COAST.cx = clamp(COAST.cx + COAST.vx * dt * decay, -40, innerWidth + 40);
+      COAST.cy = clamp(COAST.cy + COAST.vy * dt * decay, -40, innerHeight + 40);
+      return true;
+    }
     function frame(L, t, label, W) {
       sideHint = false;
       let f = feat(L, t, W, label);
@@ -7146,12 +7194,13 @@
       dodge(f, t);
       const ok = menu || step === 'ask' || step === 'done' || step === 'game' || step === 'carry' || step === 'fruit' || step === 'gameover' || checkHand(label, t);
       c.hidden = false;
-      c.style.left = f.x + 'px';
-      c.style.top = f.y + 'px';
+      const cs = coastGood(f, t);
+      c.style.left = cs.x + 'px';
+      c.style.top = cs.y + 'px';
       c.classList.toggle('pinch', f.pinch);
       if (step !== 'pinch') c.style.setProperty('--p', clamp((0.75 - f.pr) / 0.45, 0, 1));
-      CUR.x = f.x;
-      CUR.y = f.y;
+      CUR.x = cs.x;
+      CUR.y = cs.y;
       CUR.pinch = !!f.pinch;
       CUR.p = parseFloat(c.style.getPropertyValue('--p')) || 0;
       if (menu) return menuFrame(f, t);
@@ -7293,8 +7342,16 @@
         lightSample(v, box, now);
       }
       if (!L) {
-        $('cur').hidden = true;
         const rest = all.some(resting);
+        // glide through a brief dropout instead of vanishing; after the grace, hide as before
+        if (!rest && coastLost(now)) {
+          const cc = $('cur');
+          cc.hidden = false;
+          cc.style.left = COAST.cx + 'px';
+          cc.style.top = COAST.cy + 'px';
+          CUR.x = COAST.cx;
+          CUR.y = COAST.cy;
+        } else $('cur').hidden = true;
         if (step === 'game' || step === 'carry' || step === 'fruit') trackTick(false, rest, null);
         if (step === 'fruit' && FG && !rest) fruitLost(now);
         recFrame(now, null, null, null, all.length, rest);
@@ -7592,6 +7649,7 @@
     window.trainModel = () => MODEL.id;
     window.trainPickModel = pickModel;
     window.trainCursor = { set: (o) => Object.assign(CUR, o), style: setCurStyle, get: () => ({ style: curStyle, canvasCur: $('cur').classList.contains('canvasCur') }) };
+    window.trainCoast = { good: coastGood, lost: coastLost, state: () => COAST };
     window.trainLight = { sample: lightSample, now: lightNow, word: lightWord, R: () => LR, tick: trackTick, still: trackStill, start: lightRoundStart, end: lightRoundEnd, section: lightSection, text: lightText, cur: () => LIGHT.cur };
     window.trainLock = lockModel;
     window.trainFeat = feat;
