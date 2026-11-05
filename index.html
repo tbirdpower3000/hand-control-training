@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.71</div>
+<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.72</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="cur" hidden></div>
@@ -1197,7 +1197,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.71 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.72 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -4839,8 +4839,27 @@
         return 0;
       }
     }
+    // remove any leftover game canvas and wipe the cursor-trail layer. Switching games without going through an end card
+    // used to leave the previous game's canvas on top (fruitCv sits above the others), so a finished round's frozen frame —
+    // blade smears, glowing plankton — bled through into the next screen. Called whenever a game starts or is paused.
+    function killGameCanvases() {
+      ['popCv', 'carryCv', 'fruitCv'].forEach((id) => {
+        const c = $(id);
+        if (c) c.remove();
+      });
+      if (typeof G !== 'undefined' && G) G.cv = null;
+      if (typeof C !== 'undefined' && C) C.cv = null;
+      if (typeof FG !== 'undefined' && FG) FG.cv = null;
+      const cc = $('curCv');
+      if (cc && cc.getContext) {
+        const cx = cc.getContext('2d');
+        if (cx) cx.clearRect(0, 0, cc.width, cc.height);
+      }
+      if (typeof CUR !== 'undefined' && CUR && CUR.trail) CUR.trail.length = 0;
+    }
     function startGame() {
       if (readyGate(startGame, '🫧 Pop the bubbles')) return;
+      killGameCanvases();
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       $('gComboL').textContent = 'Combo';
@@ -5495,6 +5514,7 @@
     let C = null;
     function startCarry() {
       if (readyGate(startCarry, '📦 Carry & place')) return;
+      killGameCanvases();
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       // the HUD's labels for this game, and no prompt timer left over from an earlier round
@@ -5953,6 +5973,7 @@
     }
     function startFruit() {
       if (readyGate(startFruit, '🍉 Slice the fruit')) return;
+      killGameCanvases();
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       $('gComboL').textContent = '🍉 Sliced';
@@ -7013,7 +7034,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.71',
+        app: 'v0.72',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -8196,15 +8217,12 @@
         $('ask').hidden = true;
         $('gameHud').hidden = true;
         $('lightChip').hidden = true;
+        killGameCanvases();
         if (held === 'fruit' && FG) {
-          if (FG.cv) FG.cv.remove();
           FG.fruits = [];
           FG.halves = [];
         }
-        if (held === 'carry' && C) {
-          if (C.cv) { C.cv.remove(); C.cv = null; }
-        }
-        if (held === 'game' && G && G.bubbles) { G.bubbles.length = 0; if (G.cv) { G.cv.remove(); G.cv = null; } }
+        if (held === 'game' && G && G.bubbles) G.bubbles.length = 0;
         clearTargets();
         const card = document.createElement('section');
         card.className = 'card';
