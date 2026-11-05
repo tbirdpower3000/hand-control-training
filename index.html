@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.58, 5 Nov 2026">v0.58</div>
+<div id="ver" title="Hand control training, version 0.59, 5 Nov 2026">v0.59</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
@@ -1198,7 +1198,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.58 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.59 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1453,7 +1453,7 @@
   // burst onto. The fruit game already has a canvas; it can keep using its own
   // FG.juice array and just borrow comboSound/shake/haptic. z-index 5 puts
   // shrapnel above bubbles (z3) and the fruit canvas (z4) but below #cur (z100).
-  let cv = null, ctx = null, parts = [], raf = 0;
+  let cv = null, ctx = null, parts = [], labels = [], rings = [], raf = 0;
   function ensure() {
     if (cv) return;
     cv = document.createElement('canvas');
@@ -1464,14 +1464,14 @@
     _resize();
   }
   function _resize() {
-    const d = window.devicePixelRatio || 1;
+    const d = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(innerWidth * d);
     cv.height = Math.round(innerHeight * d);
     ctx.setTransform(d, 0, 0, d, 0, 0);
   }
   function loop() {
     raf = requestAnimationFrame(loop);
-    const t = now(), d = window.devicePixelRatio || 1;
+    const t = now(), d = Math.min(2, window.devicePixelRatio || 1);
     if (cv.width !== Math.round(innerWidth * d)) _resize();
     ctx.setTransform(d, 0, 0, d, 0, 0);
     ctx.clearRect(0, 0, innerWidth, innerHeight);
@@ -1495,7 +1495,31 @@
     }
     ctx.restore();
     ctx.globalAlpha = 1;
-    if (!parts.length && t >= _sh.until) { cancelAnimationFrame(raf); raf = 0; } // idle: stop the loop
+    // rings (press ripple) and labels (+N) in screen space, so they neither shake nor blur
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const r = rings[i], u = (t - r.t0) / (r.life * 1000);
+      if (u >= 1) { rings.splice(i, 1); continue; }
+      const e = 1 - (1 - u) * (1 - u);
+      ctx.globalAlpha = (1 - u) * 0.9;
+      ctx.strokeStyle = r.col;
+      ctx.lineWidth = 3 * (1 - u) + 1;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r0 + (r.r1 - r.r0) * e, 0, 7);
+      ctx.stroke();
+    }
+    for (let i = labels.length - 1; i >= 0; i--) {
+      const L = labels[i], u = (t - L.t0) / (L.life * 1000);
+      if (u >= 1) { labels.splice(i, 1); continue; }
+      const bump = u < 0.22 ? Math.sin((u / 0.22) * Math.PI) * (L.pop - 1) : 0;
+      ctx.globalAlpha = clamp(1 - u * u, 0, 1);
+      ctx.fillStyle = L.col;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '700 ' + Math.round(L.size * (1 + bump)) + 'px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillText(L.text, L.x, L.y - L.rise * u);
+    }
+    ctx.globalAlpha = 1;
+    if (!parts.length && !labels.length && !rings.length && t >= _sh.until) { cancelAnimationFrame(raf); raf = 0; } // idle: stop the loop
   }
   // burst(x, y, opts): opts = { n, speed, colors:[…], r, life, lift, grav }
   function burst(x, y, opts) {
@@ -1512,6 +1536,21 @@
         life: life * (0.7 + Math.random() * 0.6), life0: life, t: now(),
       });
     }
+    if (!raf) loop();
+  }
+  // a floating "+N" that rises and fades on the shared canvas (replaces the DOM .popfx label), with a quick scale
+  // overshoot so it pops in. Drawn in screen space (outside the shake) so the number stays crisp and readable.
+  function label(x, y, text, opts) {
+    ensure();
+    const o = opts || {};
+    labels.push({ x, y, text, col: o.col || '#ffd88a', t0: now(), life: o.life || 0.75, rise: o.rise || 26, size: o.size || 17.6, pop: o.pop == null ? 1.35 : o.pop });
+    if (!raf) loop();
+  }
+  // an expanding, fading ring from a press point (replaces the DOM .juice-ring)
+  function ring(x, y, opts) {
+    ensure();
+    const o = opts || {};
+    rings.push({ x, y, t0: now(), life: o.life || 0.45, col: o.col || 'rgba(255,255,255,0.9)', r0: o.r0 || 8, r1: o.r1 || 46 });
     if (!raf) loop();
   }
   // a canvas-less convenience: shake that also kicks the particle loop so the
@@ -1580,7 +1619,7 @@
     try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
   }
 
-  return { hitStop, frozen, shake, shakeValue, shakeFx, burst, punch, comboSound, breakSound, haptic, reducedMotion: RM };
+  return { hitStop, frozen, shake, shakeValue, shakeFx, burst, label, ring, punch, comboSound, breakSound, haptic, reducedMotion: RM };
 })();
 
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -3719,12 +3758,7 @@
     }
     // 3. a press you can feel: a quick bounce of the target and a ring bursting from where you pressed
     function juice(x, y, el) {
-      const r = document.createElement('div');
-      r.className = 'juice-ring';
-      r.style.left = x + 'px';
-      r.style.top = y + 'px';
-      document.body.appendChild(r);
-      setTimeout(() => r.remove(), 450);
+      Feel.ring(x, y);
       if (el) {
         el.classList.remove('juiced');
         void el.offsetWidth;
@@ -4784,13 +4818,14 @@
       const l = $('gameLive');
       if (l) l.textContent = m;
     }
-    function drawBubble(x, cx, cy, r, col, hot, alpha, scale) {
+    function drawBubble(x, cx, cy, r, col, hotT, alpha, scale) {
       const a = alpha == null ? 1 : alpha,
-        rr = r * (scale == null ? 1 : scale);
+        ht = hotT || 0,
+        rr = r * (scale == null ? 1 : scale) * (1 + 0.06 * ht); // a captured bubble swells a touch, like a primed can tab
       x.save();
       x.globalAlpha = a;
       x.shadowColor = col;
-      x.shadowBlur = 18;
+      x.shadowBlur = 18 + 10 * ht;
       const g = x.createRadialGradient(cx - rr * 0.16, cy - rr * 0.2, rr * 0.1, cx, cy, rr);
       g.addColorStop(0, col + '4d'); // ~30% of the colour at the core, like the DOM radial-gradient
       g.addColorStop(1, col);
@@ -4806,11 +4841,12 @@
       x.arc(cx - rr * 0.32, cy - rr * 0.4, rr * 0.18, 0, 7);
       x.fillStyle = 'rgba(255,255,255,0.85)';
       x.fill();
-      if (hot) {
+      if (ht > 0.01) {
+        x.globalAlpha = a * 0.6 * ht; // the hover ring eases in/out instead of snapping, so it never flickers
         x.beginPath();
         x.arc(cx, cy, rr + 3, 0, 7);
         x.lineWidth = 4;
-        x.strokeStyle = 'rgba(255,216,138,0.6)';
+        x.strokeStyle = 'rgba(255,216,138,1)';
         x.stroke();
       }
       x.restore();
@@ -4826,17 +4862,28 @@
       }
       x.setTransform(dpr, 0, 0, dpr, 0, 0);
       x.clearRect(0, 0, innerWidth, innerHeight);
-      for (const b of G.bubbles) drawBubble(x, bx(b), b.y, b.r, b.col, b === G.capBubble);
-      // a pop: the bubble scales up to 1.6 and fades over ~180 ms, matching the old .popped CSS
+      const sh = Feel.shakeValue(now);
+      if (sh.x || sh.y) x.translate(sh.x, sh.y);
+      for (const b of G.bubbles) drawBubble(x, bx(b), b.y, b.r, b.col, b.hotT || 0);
+      // a pop: an ease-out swell plus a quick white shockwave, so it reads as one smooth release, not a linear scale
       if (G.fx) {
         for (let i = G.fx.length - 1; i >= 0; i--) {
           const e = G.fx[i],
-            u = (now - e.t0) / 180;
+            u = (now - e.t0) / 220;
           if (u >= 1) {
             G.fx.splice(i, 1);
             continue;
           }
-          drawBubble(x, e.x, e.y, e.r, e.col, false, 1 - u, 1 + 0.6 * u);
+          const eo = 1 - (1 - u) * (1 - u);
+          drawBubble(x, e.x, e.y, e.r, e.col, 0, (1 - u) * (1 - u), 1 + 0.9 * eo);
+          x.save();
+          x.globalAlpha = (1 - u) * 0.5;
+          x.strokeStyle = '#fff';
+          x.lineWidth = 2 * (1 - u);
+          x.beginPath();
+          x.arc(e.x, e.y, e.r * (1 + 1.7 * eo), 0, 7);
+          x.stroke();
+          x.restore();
         }
       }
     }
@@ -4878,6 +4925,7 @@
         b.y += b.v * dt;
         b.ph += dt * 2;
         b.sx = b.x + Math.sin(b.ph) * b.drift * 0.3;
+        b.hotT = (b.hotT || 0) + ((b === G.capBubble ? 1 : 0) - (b.hotT || 0)) * Math.min(1, dt * 12);
         if (b.y - b.r > innerHeight) {
           G.bubbles.splice(i, 1);
           G.fell++;
@@ -5001,18 +5049,11 @@
       const f0 = 523.25 * Math.pow(2, Math.min(G.combo - 1, 12) / 12);
       note(f0, 0, 0.08, 0.2);
       note(f0 * 1.5, 0.05, 0.05, 0.25);
-      const fx_ = document.createElement('div');
-      fx_.className = 'popfx';
-      fx_.style.left = bx(b) + 'px';
-      fx_.style.top = b.y + 'px';
-      fx_.textContent = '+' + pts;
       juice(bx(b), b.y, null);
-      document.body.appendChild(fx_);
-      setTimeout(() => fx_.remove(), 750);
+      Feel.label(bx(b), b.y, '+' + pts);
       // juice: shrapnel in the bubble's own colour, a punched score, a small kick and a short buzz on a phone — no hit-stop
       // here, because the pop game's throughput is measured from the real time between pops
       Feel.burst(bx(b), b.y, { n: 14, speed: 420, colors: [b.col, '#fff', b.col], r: 3.4, life: 0.5, grav: 1 });
-      Feel.punch(fx_, 1.35, 220);
       Feel.punch($('gScore'));
       Feel.shakeFx(Math.min(7, 2 + G.combo * 0.5), 180);
       Feel.haptic(8, sndOn);
@@ -5410,6 +5451,8 @@
       }
       x.setTransform(dpr, 0, 0, dpr, 0, 0);
       x.clearRect(0, 0, innerWidth, innerHeight);
+      const sh = Feel.shakeValue(now);
+      if (sh.x || sh.y) x.translate(sh.x, sh.y);
       if (C.got) {
         const u = (now - C.got.t0) / 450; // the just-delivered square fades out, like the old .got CSS
         if (u >= 1) C.got = null;
@@ -5525,16 +5568,9 @@
                 const f0 = 523.25 * Math.pow(2, Math.min(C.done.length - 1, 12) / 12);
                 note(f0, 0, 0.08, 0.2);
                 note(f0 * 1.5, 0.05, 0.05, 0.25);
-                const fx_ = document.createElement('div');
-                fx_.className = 'popfx';
-                fx_.style.left = o.x + 'px';
-                fx_.style.top = o.y + 'px';
-                fx_.textContent = '+' + (10 + bonus);
-                document.body.appendChild(fx_);
-                setTimeout(() => fx_.remove(), 700);
+                Feel.label(o.x, o.y, '+' + (10 + bonus), { col: '#7dff9a' });
                 // land the delivery: a burst in the zone, a punched score and a short buzz (a bigger bonus = a bigger burst)
                 Feel.burst(o.x, o.y, { n: 12 + bonus * 3, speed: 380, colors: ['#7dff9a', '#bfffd0', '#fff'], r: 3.2, life: 0.55, grav: 0.8 });
-                Feel.punch(fx_, 1.35, 220);
                 Feel.shakeFx(4, 160);
                 Feel.haptic(10, sndOn);
                 C.i++;
@@ -5971,7 +6007,7 @@
     function fruitDraw(now) {
       const cv = FG.cv,
         x = FG.ctx,
-        dpr = window.devicePixelRatio || 1;
+        dpr = Math.min(2, window.devicePixelRatio || 1);
       if (cv.width !== Math.round(innerWidth * dpr) || cv.height !== Math.round(innerHeight * dpr)) {
         cv.width = Math.round(innerWidth * dpr);
         cv.height = Math.round(innerHeight * dpr);
@@ -6263,15 +6299,7 @@
       Feel.shake(Math.min(9, 3 + sw.cut * 1.5), 180);
       Feel.haptic(sw.cut > 1 ? [8, 20, 8] : 8, sndOn);
       if (sw.cut > 1) {
-        const cx_ = document.createElement('div');
-        cx_.className = 'popfx';
-        cx_.style.left = f_.x + 'px';
-        cx_.style.top = f_.y - 28 + 'px';
-        cx_.style.color = 'var(--gold)';
-        cx_.textContent = '×' + sw.cut + '!';
-        document.body.appendChild(cx_);
-        Feel.punch(cx_, 1.5, 240);
-        setTimeout(() => cx_.remove(), 700);
+        Feel.label(f_.x, f_.y - 28, '×' + sw.cut + '!', { col: '#ffd88a', pop: 1.5 });
       }
     }
     // how far behind the hand the cursor runs: the time shift (0–300 ms) at which the hand's own path, shifted later,
@@ -6708,7 +6736,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.58',
+        app: 'v0.59',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
