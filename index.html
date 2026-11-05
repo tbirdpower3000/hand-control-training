@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.66, 5 Nov 2026">v0.66</div>
+<div id="ver" title="Hand control training, version 0.67, 5 Nov 2026">v0.67</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label title="Show or hide the webcam window in the game."><input id="camShow" type="checkbox" checked /> 📷 camera</label><label>Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
@@ -1198,7 +1198,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.66 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.67 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -6051,6 +6051,84 @@
           if (q.life <= 0 || q.y - 60 > H) a.splice(i, 1);
         }
     }
+    // ---- the fruit game's bioluminescent "water world" backdrop: a deep indigo-to-black gradient, slow drifting neon
+    // caustics, and rising plankton that glow and twinkle. Drawn behind the fruit; the distance-guide edges sit on top.
+    const _plSprite = {};
+    function planktonSprite(col) {
+      if (_plSprite[col]) return _plSprite[col];
+      const R = 16,
+        box = R * 2;
+      const c = document.createElement('canvas');
+      c.width = c.height = box * 2;
+      const x = c.getContext('2d');
+      x.scale(2, 2);
+      const g = x.createRadialGradient(R, R, 0, R, R, R);
+      g.addColorStop(0, col + '1)');
+      g.addColorStop(0.45, col + '0.5)');
+      g.addColorStop(1, col + '0)');
+      x.fillStyle = g;
+      x.beginPath();
+      x.arc(R, R, R, 0, 7);
+      x.fill();
+      _plSprite[col] = { canvas: c, box };
+      return _plSprite[col];
+    }
+    function mkPlankton(init) {
+      return {
+        x: Math.random() * innerWidth,
+        y: init ? Math.random() * innerHeight : innerHeight + 14,
+        r: 1.4 + Math.random() * 2.8,
+        v: 9 + Math.random() * 26,
+        sway: Math.random() * 6.28,
+        swayA: 4 + Math.random() * 13,
+        ph: Math.random() * 6.28,
+        col: Math.random() < 0.5 ? 'rgba(120,230,255,' : 'rgba(255,95,230,',
+      };
+    }
+    function fruitBiolumBG(x, now) {
+      const g = x.createLinearGradient(0, 0, 0, innerHeight);
+      g.addColorStop(0, '#16235a');
+      g.addColorStop(0.5, '#0a1138');
+      g.addColorStop(1, '#01030e');
+      x.fillStyle = g;
+      x.fillRect(0, 0, innerWidth, innerHeight);
+      x.save();
+      x.globalCompositeOperation = 'lighter';
+      // drifting neon caustics near the surface
+      for (let i = 0; i < 5; i++) {
+        const cx = ((i * 0.37 + now * 0.00004) % 1) * innerWidth,
+          cy = innerHeight * 0.14 + Math.sin(now / 1600 + i * 1.7) * innerHeight * 0.1,
+          cr = innerWidth * 0.14,
+          col = i % 2 ? '130,120,255' : '90,200,255',
+          rg = x.createRadialGradient(cx, cy, 0, cx, cy, cr);
+        rg.addColorStop(0, 'rgba(' + col + ',0.05)');
+        rg.addColorStop(1, 'rgba(' + col + ',0)');
+        x.fillStyle = rg;
+        x.beginPath();
+        x.arc(cx, cy, cr, 0, 7);
+        x.fill();
+      }
+      // rising, twinkling plankton (drawn from a cached glow sprite — cheap)
+      if (!FG.plankton) {
+        FG.plankton = [];
+        for (let i = 0; i < 40; i++) FG.plankton.push(mkPlankton(true));
+      }
+      const dt = Math.min(0.05, FG._pt ? (now - FG._pt) / 1000 : 0.016);
+      FG._pt = now;
+      for (const p of FG.plankton) {
+        p.y -= p.v * dt;
+        p.sway += dt * 1.5;
+        if (p.y < -14) Object.assign(p, mkPlankton(false));
+        const px = p.x + Math.sin(p.sway) * p.swayA,
+          tw = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(now / 420 + p.ph)), // twinkle
+          sp = planktonSprite(p.col),
+          d = p.r * 7;
+        x.globalAlpha = tw;
+        x.drawImage(sp.canvas, px - d / 2, p.y - d / 2, d, d);
+      }
+      x.globalAlpha = 1;
+      x.restore();
+    }
     function fruitDraw(now) {
       const cv = FG.cv,
         x = FG.ctx,
@@ -6093,8 +6171,11 @@
         x.rotate(f_.rot);
         if (f_.barrel) drawBarrel(x, f_.r);
         else {
+          x.shadowColor = 'rgba(110,225,255,0.9)';
+          x.shadowBlur = 16;
           x.font = `${Math.round(f_.r * 1.9)}px serif`;
           x.fillText(f_.emoji, 0, 0);
+          x.shadowBlur = 0;
         }
         x.restore();
       }
@@ -6123,16 +6204,22 @@
       const tr = FG.trail;
       if (tr.length > 1) {
         const tEnd = tr[tr.length - 1].t;
+        x.save();
+        x.globalCompositeOperation = 'lighter';
+        x.lineCap = 'round';
         for (let i = 1; i < tr.length; i++) {
           const a = clamp(1 - (tEnd - tr[i].t) / 150, 0, 1);
-          x.strokeStyle = `rgba(255,255,255,${0.9 * a})`;
-          x.lineWidth = 2 + 8 * a;
-          x.lineCap = 'round';
           x.beginPath();
           x.moveTo(tr[i - 1].x, tr[i - 1].y);
           x.lineTo(tr[i].x, tr[i].y);
+          x.strokeStyle = `rgba(255,70,230,${0.5 * a})`; // neon glow
+          x.lineWidth = 6 + 16 * a;
+          x.stroke();
+          x.strokeStyle = `rgba(205,255,255,${0.95 * a})`; // bright core
+          x.lineWidth = 1 + 4 * a;
           x.stroke();
         }
+        x.restore();
       }
       // the cursor keeps tracking past the edge; when it has left the screen a glow on the nearest edge marks where your
       // hand is pointing, so you can slash in and out without losing it
@@ -6165,9 +6252,8 @@
     }
     // the distance guide and corner hand marks that stand in for the camera in the fruit game
     function fruitGuideDraw(x, now) {
-      // a base wash so the fruit stay readable without the camera behind them
-      x.fillStyle = 'rgba(7,11,20,0.55)';
-      x.fillRect(0, 0, innerWidth, innerHeight);
+      // a bioluminescent deep-water backdrop (gradient, drifting caustics, rising glowing plankton) so the fruit pop
+      fruitBiolumBG(x, now);
       // how far you sit, from the gap between your pupils (only the number is read): green in the sweet spot, warm when too
       // close, cool when too far. The sweet spot centres on where this hand was trained, or ~62 cm until it is.
       const cm = distNow(now),
@@ -6783,7 +6869,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.66',
+        app: 'v0.67',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
