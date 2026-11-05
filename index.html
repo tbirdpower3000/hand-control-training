@@ -1269,8 +1269,8 @@
   <fieldset>
     <legend>Camera</legend>
     <div class="chips">
-      <label><input type="radio" name="camShowOpt" value="on" checked /><span>📷 Show in games</span></label>
-      <label><input type="radio" name="camShowOpt" value="off" /><span>🚫 Hide</span></label>
+      <label><input type="radio" name="camShowOpt" value="on" /><span>📷 Show in games</span></label>
+      <label><input type="radio" name="camShowOpt" value="off" checked /><span>🚫 Hide</span></label>
     </div>
     <p class="muted">Whether the webcam window shows during the games. Hiding it runs the games lighter (the window and its tracking overlay are not drawn); the fruit game shows its edge-glow guide instead.</p>
   </fieldset>
@@ -7176,7 +7176,7 @@
       camQ = 'c-tr',
       camMove = true,
       camSkel = true,
-      camShow = true;
+      camShow = false;
     try {
       camMove = localStorage.getItem('trainCamMove') !== '0';
     } catch (e) {}
@@ -7184,7 +7184,7 @@
       camSkel = localStorage.getItem('trainCamSkel') !== '0';
     } catch (e) {}
     try {
-      camShow = localStorage.getItem('trainCamShow') !== '0';
+      camShow = localStorage.getItem('trainCamShow') === '1'; // camera off by default; the games run lighter without the overlay
     } catch (e) {}
     // the bones of a MediaPipe hand: wrist to each finger, and along each finger
     const HAND_BONES = [
