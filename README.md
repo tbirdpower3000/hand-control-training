@@ -67,6 +67,10 @@ At the end you can **share your results with the project**. It opens a GitHub is
 
 Please read [PRIVACY.md](PRIVACY.md) first. In short: the camera never leaves your computer; sharing is optional, public, and under your GitHub account; this is not a medical test.
 
+## Camera and speed
+
+Hand and face tracking run on Google MediaPipe with the **GPU** where your device and browser allow it (a WebGL delegate), so the work is off the main thread. The page asks the camera for a larger, faster picture (up to 1280×720 at 60 frames a second) as a preference, falling back to a smaller one on a weaker camera or device, so there are more pixels on your hand and more frames for fast movement. The webcam controls show the **tracking rate** (processed camera frames per second); if it stays low, the room may be too dark or the device busy.
+
 ## Seeing the tracking
 
 The webcam window can draw the tracked hand's skeleton: the 21 points MediaPipe finds, the bones between them, and the five fingertips picked out in gold, over the mirrored camera picture. It is on by default; the **👋 tracking** box in the webcam controls turns it off. It shows the hand in use in full and the ignored hand as dim dots, so you can see at a glance whether the camera has you.

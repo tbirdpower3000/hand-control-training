@@ -1010,10 +1010,10 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.44, 4 Nov 2026">v0.44</div>
+<div id="ver" title="Hand control training, version 0.45, 4 Nov 2026">v0.45</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
-<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label></div>
+<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><span id="camFps" title="Camera frames tracked per second, on the GPU where your device allows it. Higher is smoother; if it stays low, the room may be dark or the device busy." style="opacity:0.7">–</span></div>
 <div id="cur" hidden></div>
 <div id="hudChips"><div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div><div id="distChip" hidden aria-live="polite" title="How far you sit from the camera, from the gap between your pupils (only the number is kept)">📏 <b id="distWord">–</b></div></div>
 <div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span><i id="gComboL">Combo</i> <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span><i id="gBestL">Best</i> <b id="gBest">0</b></span></div>
@@ -1031,7 +1031,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.44 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.45 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -5948,7 +5948,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.44',
+        app: 'v0.45',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -6165,6 +6165,7 @@
       lastT = -1,
       faceLm = null, // the face, only for the eyes' position and the pupil gap (the camera models); optional
       faceN = 0;
+    const trk = { last: 0, fps: 0, show: 0 }; // the measured tracking rate (processed camera frames per second)
     // the answers on the first card: a starting point the exercises then refine
     const pick = (n) => (document.querySelector(`input[name=${n}]:checked`) || {}).value;
     const PRIOR = {
@@ -6417,6 +6418,14 @@
       if (!landmarker || v.readyState < 2 || v.currentTime === lastT) return;
       lastT = v.currentTime;
       const now = performance.now();
+      // the tracking rate: how many camera frames a second are actually processed (shows whether the device keeps up)
+      if (trk.last) trk.fps += ((1000 / Math.max(1, now - trk.last)) - trk.fps) * 0.1;
+      trk.last = now;
+      if (now - trk.show > 1000) {
+        trk.show = now;
+        const el = $('camFps');
+        if (el) el.textContent = `${Math.round(trk.fps)}/s`;
+      }
       // the eyes, every second frame: the two iris centres (points 468 and 473), mirrored as you see yourself
       if (faceLm && (faceN = (faceN + 1) % 2) === 0) {
         try {
@@ -6524,11 +6533,20 @@
       }
       m.textContent = 'Asking for the camera…';
       let stream;
+      // ask for a bigger, faster picture (more pixels on the hand, and more frames a second for fast moves) as a preference,
+      // not a demand, so a weaker camera or device simply gives what it can; fall back to the old request if even that fails
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
-      } catch (e) {
-        m.innerHTML = `<span class="err">The camera couldn’t be opened (${(e && e.name) || 'blocked'}). Allow it for this site and try again.</span>`;
-        return false;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 }, facingMode: 'user' },
+          audio: false,
+        });
+      } catch (e1) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
+        } catch (e) {
+          m.innerHTML = `<span class="err">The camera couldn’t be opened (${(e && e.name) || 'blocked'}). Allow it for this site and try again.</span>`;
+          return false;
+        }
       }
       const v = $('vid');
       v.srcObject = stream;
