@@ -1476,6 +1476,7 @@
   let _sh = { amp: 0, until: 0, dur: 1, seed: 0 };
   function shake(amp, ms) {
     if (RM()) return;
+    amp *= 0.55; // global screen-shake trim: keep the trauma model's shape, just gentler overall
     const t = now(), live = t < _sh.until ? _sh.amp : 0;
     _sh = { amp: Math.max(amp, live), until: t + ms, dur: ms, seed: Math.random() * 99 };
   }
