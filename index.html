@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.74</div>
+<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.75</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="cur" hidden></div>
@@ -1197,7 +1197,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.74 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.75 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1286,6 +1286,14 @@
       <label><input type="radio" name="aimAssistOpt" value="off" /><span>✋ Off</span></label>
     </div>
     <p class="muted">In the bubble game, on: the cursor is gently pulled onto a bubble and a near-miss still counts, so popping is forgiving. Off: the cursor follows your hand exactly and you must be on the bubble — harder and more precise.</p>
+  </fieldset>
+  <fieldset>
+    <legend>Two hands</legend>
+    <div class="chips">
+      <label><input type="radio" name="twoHandsOpt" value="off" checked /><span>✋ One</span></label>
+      <label><input type="radio" name="twoHandsOpt" value="on" /><span>🙌 Both</span></label>
+    </div>
+    <p class="muted">In the fruit game, let your second hand slice too — it gets its own gold blade. Both hands cut at once; scores add up. (The bubble and carry games still use one hand.)</p>
   </fieldset>
   <p class="muted">
     After each step you can rate how it went from 1 to 7, or let it carry on by itself. Sit where you'll use the atlas.
@@ -6037,7 +6045,7 @@
       const cv = document.createElement('canvas');
       cv.id = 'fruitCv';
       document.body.appendChild(cv);
-      FG = { cv, ctx: cv.getContext('2d', { alpha: false, desynchronized: true }), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false, sz: {}, guideGlow: null, guideCol: null, prevV: null, bridged: 0 };
+      FG = { cv, ctx: cv.getContext('2d', { alpha: false, desynchronized: true }), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false, sz: {}, guideGlow: null, guideCol: null, prevV: null, bridged: 0, trail2: [], swipe2: null, prev2: null, prevV2: null, cur2: null, c2s: null };
       fruitSetup(HAND);
       step = 'fruit';
       S = {};
@@ -6431,6 +6439,33 @@
         }
         x.restore();
       }
+      // the second hand's blade (two-hand mode): gold glow + a bright core, so the two blades read apart
+      const tr2 = FG.trail2;
+      if (tr2 && tr2.length > 1) {
+        const tEnd2 = tr2[tr2.length - 1].t;
+        x.save();
+        x.globalCompositeOperation = 'lighter';
+        x.lineCap = 'round';
+        for (let i = 1; i < tr2.length; i++) {
+          const a = clamp(1 - (tEnd2 - tr2[i].t) / 150, 0, 1);
+          x.beginPath();
+          x.moveTo(tr2[i - 1].x, tr2[i - 1].y);
+          x.lineTo(tr2[i].x, tr2[i].y);
+          x.strokeStyle = `rgba(255,200,60,${0.5 * a})`;
+          x.lineWidth = 6 + 16 * a;
+          x.stroke();
+          x.strokeStyle = `rgba(255,255,230,${0.95 * a})`;
+          x.lineWidth = 1 + 4 * a;
+          x.stroke();
+        }
+        if (FG.cur2) {
+          x.fillStyle = 'rgba(255,200,60,0.9)';
+          x.beginPath();
+          x.arc(FG.cur2.x, FG.cur2.y, 9, 0, 7);
+          x.fill();
+        }
+        x.restore();
+      }
       // the cursor keeps tracking past the edge; when it has left the screen a glow on the nearest edge marks where your
       // hand is pointing, so you can slash in and out without losing it
       const cur = FG.prev;
@@ -6715,6 +6750,36 @@
     }
     function fruitLost(now) {
       if (FG.lastHandT && now - FG.lastHandT < 600 && FG.lastSpeed >= 0.7 * FG.thr) FG.dropsFast++;
+    }
+    // the second hand in two-hand mode: its own blade and swipe, slicing the same fruit. It reuses sliceFruit (so barrels
+    // still penalise and combos count) but skips the pinch/profile/warm-up/stats machinery of the main hand.
+    function fruitFrame2(x, y, t) {
+      const p = { x, y, t },
+        prev = FG.prev2;
+      FG.cur2 = p;
+      FG.prev2 = p;
+      FG.trail2.push(p);
+      while (FG.trail2.length && t - FG.trail2[0].t > 150) FG.trail2.shift();
+      if (!prev || fruitPaused(performance.now())) return;
+      const v = Math.hypot(p.x - prev.x, p.y - prev.y) / (Math.max(1, t - prev.t) / 1000);
+      if (v > 10000) {
+        FG.swipe2 = null;
+        FG.prevV2 = null;
+        return;
+      }
+      const gate = v >= FG.thr || (FG.prevV2 != null && FG.prevV2 >= FG.thr);
+      FG.prevV2 = v;
+      if (gate) {
+        if (!FG.swipe2) FG.swipe2 = { peak: 0, cut: 0, start: { x: prev.x, y: prev.y }, end: p, slow: 0, ser: [] };
+        const sw = FG.swipe2;
+        sw.peak = Math.max(sw.peak, v);
+        sw.slow = 0;
+        sw.end = p;
+        for (const f_ of [...FG.fruits]) if (segDist(prev, p, f_) <= fruitCapture(f_, v)) sliceFruit(f_, prev, p, sw);
+      } else if (FG.swipe2) {
+        FG.swipe2.slow++;
+        if (FG.swipe2.slow >= 2) FG.swipe2 = null;
+      }
     }
     function fruitFrame(f, t, label) {
       FG.lastHand = performance.now();
@@ -7102,7 +7167,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.74',
+        app: 'v0.75',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -7399,6 +7464,10 @@
     try {
       aimAssist = localStorage.getItem('trainAimAssist') !== '0';
     } catch (e) {}
+    let twoHands = false; // fruit game only: a second hand gets its own blade and slices too
+    try {
+      twoHands = localStorage.getItem('trainTwoHands') === '1';
+    } catch (e) {}
     // the bones of a MediaPipe hand: wrist to each finger, and along each finger
     const HAND_BONES = [
       [0, 1], [1, 2], [2, 3], [3, 4],
@@ -7525,6 +7594,16 @@
         aimAssist = r.value === 'on';
         try {
           localStorage.setItem('trainAimAssist', aimAssist ? '1' : '0');
+        } catch (e2) {}
+      };
+    });
+    document.querySelectorAll('input[name=twoHandsOpt]').forEach((r) => {
+      r.checked = (r.value === 'on') === twoHands;
+      r.onchange = () => {
+        if (!r.checked) return;
+        twoHands = r.value === 'on';
+        try {
+          localStorage.setItem('trainTwoHands', twoHands ? '1' : '0');
         } catch (e2) {}
       };
     });
@@ -8127,6 +8206,26 @@
         });
       }
       frame(L, now, label, W);
+      // two-hand fruit mode: the other hand in view gets its own blade (a simple direct mapping + light smoothing)
+      if (twoHands && step === 'fruit' && FG && !FG.warm) {
+        const h2 = all.find((h) => h !== pickd && !resting(h));
+        if (h2 && h2.L) {
+          const hx = 1 - h2.L[8].x,
+            hy = h2.L[8].y,
+            GAIN = 2.0,
+            sx = Math.max(0, Math.min(innerWidth, innerWidth * (0.5 + (hx - 0.5) * GAIN))),
+            sy = Math.max(0, Math.min(innerHeight, innerHeight * (0.5 + (hy - 0.5) * GAIN)));
+          if (!FG.c2s) FG.c2s = { x: sx, y: sy };
+          FG.c2s.x += (sx - FG.c2s.x) * 0.5;
+          FG.c2s.y += (sy - FG.c2s.y) * 0.5;
+          fruitFrame2(FG.c2s.x, FG.c2s.y, now);
+        } else {
+          FG.prev2 = null;
+          FG.cur2 = null;
+          FG.c2s = null;
+          FG.swipe2 = null;
+        }
+      }
     }
     let looping = false;
     async function startCamera(m) {
