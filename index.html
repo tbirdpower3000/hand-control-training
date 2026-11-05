@@ -5376,7 +5376,7 @@
       const cv = document.createElement('canvas');
       cv.id = 'fruitCv';
       document.body.appendChild(cv);
-      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false, sz: {} };
+      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false, sz: {}, guideGlow: null, guideCol: null };
       fruitSetup(HAND);
       step = 'fruit';
       S = {};
@@ -5584,22 +5584,9 @@
       // a brief screen-shake on a slice (trauma decays over a few frames); the next frame's setTransform resets it
       const sh = Feel.shakeValue(now);
       if (sh.x || sh.y) x.translate(sh.x, sh.y);
-      // the camera as a still, shaded background (mirrored to match you), so you can see yourself behind the fruit without a
-      // moving window; it never moves, and a dark wash over it keeps the fruit readable
-      const vid = $('vid');
-      if (vid && vid.readyState >= 2 && vid.videoWidth) {
-        const scale = Math.max(innerWidth / vid.videoWidth, innerHeight / vid.videoHeight),
-          dw = vid.videoWidth * scale,
-          dh = vid.videoHeight * scale;
-        x.save();
-        x.globalAlpha = 0.18;
-        x.translate(innerWidth, 0);
-        x.scale(-1, 1);
-        x.drawImage(vid, (innerWidth - dw) / 2, (innerHeight - dh) / 2, dw, dh);
-        x.restore();
-      }
-      x.fillStyle = 'rgba(7,11,20,0.55)';
-      x.fillRect(0, 0, innerWidth, innerHeight);
+      // instead of the camera, a faded edge-glow guides how far you sit, and a hand mark in each corner shows which hand is
+      // playing. No camera picture is shown here; only the pupil gap (a number) is read, as everywhere else.
+      fruitGuideDraw(x, now);
       if (FG.spacePaused) {
         x.fillStyle = 'rgba(7,11,20,0.6)';
         x.fillRect(0, 0, innerWidth, innerHeight);
@@ -5667,6 +5654,131 @@
           x.stroke();
         }
       }
+      // the cursor keeps tracking past the edge; when it has left the screen a glow on the nearest edge marks where your
+      // hand is pointing, so you can slash in and out without losing it
+      const cur = FG.prev;
+      if (cur && (cur.x < 0 || cur.x > innerWidth || cur.y < 0 || cur.y > innerHeight)) {
+        const ex = clamp(cur.x, 12, innerWidth - 12),
+          ey = clamp(cur.y, 12, innerHeight - 12),
+          off = Math.hypot(cur.x - ex, cur.y - ey),
+          a = clamp(0.3 + off / 220, 0.3, 0.9),
+          rad = x.createRadialGradient(ex, ey, 0, ex, ey, 38);
+        rad.addColorStop(0, `rgba(255,255,255,${a})`);
+        rad.addColorStop(1, 'rgba(255,255,255,0)');
+        x.fillStyle = rad;
+        x.beginPath();
+        x.arc(ex, ey, 38, 0, 7);
+        x.fill();
+        x.save();
+        x.globalAlpha = a;
+        x.fillStyle = '#fff';
+        x.translate(ex, ey);
+        x.rotate(Math.atan2(cur.y - ey, cur.x - ex));
+        x.beginPath();
+        x.moveTo(8, 0);
+        x.lineTo(-5, -6);
+        x.lineTo(-5, 6);
+        x.closePath();
+        x.fill();
+        x.restore();
+      }
+    }
+    // the distance guide and corner hand marks that stand in for the camera in the fruit game
+    function fruitGuideDraw(x, now) {
+      // a base wash so the fruit stay readable without the camera behind them
+      x.fillStyle = 'rgba(7,11,20,0.55)';
+      x.fillRect(0, 0, innerWidth, innerHeight);
+      // how far you sit, from the gap between your pupils (only the number is read): green in the sweet spot, warm when too
+      // close, cool when too far. The sweet spot centres on where this hand was trained, or ~62 cm until it is.
+      const cm = distNow(now),
+        h = FG && FG.hand,
+        trainCm = (h && (profileHand(h) || {}).trainCm) || null,
+        mid = trainCm || 62,
+        lo = Math.max(38, mid * 0.78),
+        hi = mid * 1.26;
+      let col, glow, hint = '';
+      if (cm == null) {
+        col = [120, 140, 170];
+        glow = 0.1;
+      } else if (cm < lo) {
+        col = [255, 150, 70];
+        glow = 0.18 + 0.4 * clamp((lo - cm) / (lo * 0.5), 0, 1);
+        hint = 'Move back';
+      } else if (cm > hi) {
+        col = [90, 170, 255];
+        glow = 0.18 + 0.4 * clamp((cm - hi) / (hi * 0.6), 0, 1);
+        hint = 'Move closer';
+      } else {
+        col = [100, 220, 150];
+        glow = 0.22;
+      }
+      // ease the colour and strength so the edges breathe rather than flicker frame to frame
+      if (FG.guideGlow == null) {
+        FG.guideGlow = glow;
+        FG.guideCol = col.slice();
+      }
+      FG.guideGlow += (glow - FG.guideGlow) * 0.12;
+      for (let i = 0; i < 3; i++) FG.guideCol[i] += (col[i] - FG.guideCol[i]) * 0.12;
+      const r = Math.round(FG.guideCol[0]),
+        g = Math.round(FG.guideCol[1]),
+        b = Math.round(FG.guideCol[2]),
+        band = Math.max(40, Math.min(innerWidth, innerHeight) * 0.16),
+        gv = FG.guideGlow * (hint ? 0.75 + 0.25 * Math.sin(now / 320) : 1), // a slow pulse when off the sweet spot
+        rgba = (al) => `rgba(${r},${g},${b},${al})`,
+        wash = (grad) => {
+          x.fillStyle = grad;
+          x.fillRect(0, 0, innerWidth, innerHeight);
+        };
+      let gd = x.createLinearGradient(0, 0, 0, band);
+      gd.addColorStop(0, rgba(gv));
+      gd.addColorStop(1, rgba(0));
+      wash(gd);
+      gd = x.createLinearGradient(0, innerHeight, 0, innerHeight - band);
+      gd.addColorStop(0, rgba(gv));
+      gd.addColorStop(1, rgba(0));
+      wash(gd);
+      gd = x.createLinearGradient(0, 0, band, 0);
+      gd.addColorStop(0, rgba(gv));
+      gd.addColorStop(1, rgba(0));
+      wash(gd);
+      gd = x.createLinearGradient(innerWidth, 0, innerWidth - band, 0);
+      gd.addColorStop(0, rgba(gv));
+      gd.addColorStop(1, rgba(0));
+      wash(gd);
+      if (hint) {
+        x.save();
+        x.globalAlpha = clamp(gv * 2.2, 0, 0.85);
+        x.fillStyle = `rgb(${r},${g},${b})`;
+        x.textAlign = 'center';
+        x.textBaseline = 'top';
+        x.font = '600 15px var(--mono, monospace)';
+        x.fillText('📏 ' + hint, innerWidth / 2, 16);
+        x.restore();
+      }
+      // a hand mark in each corner; ✋ reads as a right hand, so mirror it for the left. The playing hand is clear, faint
+      // until a hand is adopted.
+      const s = 28,
+        pad = 20,
+        left = h === 'Left',
+        spots = [
+          [pad + s / 2, pad + s / 2],
+          [innerWidth - pad - s / 2, pad + s / 2],
+          [pad + s / 2, innerHeight - pad - s / 2],
+          [innerWidth - pad - s / 2, innerHeight - pad - s / 2],
+        ];
+      x.save();
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.font = `${s}px serif`;
+      for (const [cx, cy] of spots) {
+        x.save();
+        x.globalAlpha = h ? 0.85 : 0.28;
+        x.translate(cx, cy);
+        if (left) x.scale(-1, 1);
+        x.fillText('✋', 0, 0);
+        x.restore();
+      }
+      x.restore();
     }
     // shortest distance from a point to the segment a-b
     function segDist(a, b, p) {
