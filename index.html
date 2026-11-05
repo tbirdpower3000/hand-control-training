@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.70</div>
+<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.71</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="cur" hidden></div>
@@ -1197,7 +1197,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.70 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.71 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1652,7 +1652,7 @@
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
     const KEY = 'atlasHandAssist',
       FORMAT = 'planetary-atlas-hand-profile';
-    const APP_VER = '0.43'; // logged with each game round, so a change of rules can be told apart in the history
+    const APP_VER = '0.44'; // logged with each game round, so a change of rules can be told apart in the history
     const BASE = { snap: 28, minCut: 0.8, beta: 3, pOn: 0.3, pOff: 0.48 },
       BASE_REACH = { x0: 0.22, xs: 0.56, y0: 0.18, ys: 0.52 },
       BASE_REACH_NOW = Object.assign({}, BASE_REACH); // the default box, adjusted by your answers
@@ -3824,6 +3824,54 @@
         return [];
       }
     }
+    // the single most-improved metric this round vs the player's recent median for that hand+game; null if
+    // fewer than 3 prior rounds or nothing improved (never shown as a regression). hist already holds this round last.
+    function progressLine(hist, kind, h) {
+      try {
+        const all = hist.filter((r) => r.kind === kind && r.hand === h);
+        if (all.length < 4) return null;
+        const cur = all[all.length - 1],
+          prior = all.slice(0, -1).slice(-8);
+        if (prior.length < 3) return null;
+        const med = (k) => {
+          const v = prior.map((r) => r[k]).filter((x) => x != null && isFinite(x));
+          return v.length ? median(v) : null;
+        };
+        const SPECS = {
+          game: [
+            { k: 'score', dir: 1, lab: 'Score', f: (v) => Math.round(v) },
+            { k: 'accuracy', dir: 1, lab: 'Accuracy', f: (v) => Math.round(v * 100) + '%' },
+            { k: 'reactMs', dir: -1, lab: 'Time to pop', f: (v) => (v / 1000).toFixed(1) + 's' },
+            { k: 'bestCombo', dir: 1, lab: 'Best combo', f: (v) => '×' + Math.round(v) },
+            { k: 'tp', dir: 1, lab: 'Throughput', f: (v) => v.toFixed(2) + ' bits/s' },
+          ],
+          carry: [
+            { k: 'score', dir: 1, lab: 'Score', f: (v) => Math.round(v) },
+            { k: 'errPx', dir: -1, lab: 'Placement', f: (v) => Math.round(v) + 'px from centre' },
+            { k: 'timeMs', dir: -1, lab: 'Time per delivery', f: (v) => (v / 1000).toFixed(1) + 's' },
+            { k: 'eff', dir: 1, lab: 'Path straightness', f: (v) => Math.round(v * 100) + '%' },
+          ],
+          fruit: [
+            { k: 'score', dir: 1, lab: 'Score', f: (v) => Math.round(v) },
+            { k: 'acc', dir: 1, lab: 'Swipes that cut', f: (v) => Math.round(v * 100) + '%' },
+            { k: 'bestCombo', dir: 1, lab: 'Best in one swipe', f: (v) => Math.round(v) },
+            { k: 'lagMs', dir: -1, lab: 'Cursor lag', f: (v) => Math.round(v) + 'ms' },
+          ],
+        };
+        let best = null;
+        for (const sp of SPECS[kind] || []) {
+          const cv = cur[sp.k],
+            pv = med(sp.k);
+          if (cv == null || pv == null || !isFinite(cv) || !isFinite(pv)) continue;
+          const rel = (sp.dir * (cv - pv)) / (Math.abs(pv) || 1);
+          if (rel > 0.04 && (best == null || rel > best.rel)) best = { rel, sp, cv, pv };
+        }
+        if (!best) return null;
+        return `<b style="color:#7dff9a">↑ ${best.sp.lab}: ${best.sp.f(best.cv)}</b> <span style="opacity:.7">(recent typical ${best.sp.f(best.pv)})</span>`;
+      } catch (e) {
+        return null;
+      }
+    }
     function logSession(hand, res) {
       const rat = R.ratings || {},
         ease = Object.values(rat).filter((r) => !r.auto).map((r) => r.score),
@@ -4777,6 +4825,20 @@
         return 0;
       }
     }
+    function carryBest(h) {
+      try {
+        return (JSON.parse(localStorage.getItem('carryBest') || '{}')[h] || 0) | 0;
+      } catch (e) {
+        return 0;
+      }
+    }
+    function fruitBest(h) {
+      try {
+        return (JSON.parse(localStorage.getItem('fruitBest') || '{}')[h] || 0) | 0;
+      } catch (e) {
+        return 0;
+      }
+    }
     function startGame() {
       if (readyGate(startGame, '🫧 Pop the bubbles')) return;
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
@@ -4794,11 +4856,23 @@
       $('cur').hidden = false;
       $('gameHud').hidden = false;
       goFull();
-      G = { openPr: [], openW: [], closedPr: [], closedW: [], missD: [], drift: [], trail: [], minPr: 9, minW: 9, hand: null, bubbles: [], score: 0, pops: 0, fell: 0, missPress: 0, combo: 0, bestCombo: 0, streakFell: 0, level: 0, left: GAME_LEN, spawnIn: 0.6, last: performance.now(), lastHand: 0, react: [], wasPinch: true, openSince: 0, profiled: false };
+      G = { openPr: [], openW: [], closedPr: [], closedW: [], missD: [], drift: [], trail: [], minPr: 9, minW: 9, hand: null, bubbles: [], score: 0, pops: 0, fell: 0, missPress: 0, combo: 0, bestCombo: 0, streakFell: 0, level: 0, left: GAME_LEN, spawnIn: 0.6, last: performance.now(), lastHand: 0, react: [], wasPinch: true, openSince: 0, profiled: false, combSave: true };
       step = 'game';
       popSetup();
       S = {}; // nothing for the camera window to dodge but the cursor
-      prompt('🎈 Raise a hand and pinch the bubbles before they fall', 'Move onto a bubble, then pinch thumb to index finger. Rest your hand below the waist line to pause.');
+      let firstRun = false;
+      try {
+        firstRun = !localStorage.getItem('popWarmDone');
+      } catch (e) {}
+      G.warm = firstRun;
+      if (G.warm) {
+        // a brand-new player's very first pinch: one big, still bubble with the clock paused, so the first contact is
+        // clean and unhurried before any timer. Popping it begins the real round (warmDone). Shown once per browser.
+        G.bubbles.push({ x: innerWidth / 2, y: innerHeight * 0.48, r: 90, v: 0, born: performance.now(), drift: 0, ph: 0, size: 'warm', pts: 0, col: BCOL[0], warm: true });
+        prompt('Try one pinch 🫧', 'Move onto the bubble, then pinch thumb to index finger to pop it. No clock yet — this one is just to get the feel.');
+      } else {
+        prompt('🎈 Raise a hand and pinch the bubbles before they fall', 'Move onto a bubble, then pinch thumb to index finger. Rest your hand below the waist line to pause.');
+      }
       $('gBest').textContent = '–';
       hud();
       requestAnimationFrame(gameTick);
@@ -4966,11 +5040,13 @@
         G.wasPaused = false;
         $('prompt').hidden = true;
       }
-      G.left -= dt;
-      G.spawnIn -= dt;
-      if (G.spawnIn <= 0) {
-        spawnBubble();
-        G.spawnIn = Math.max(0.5, 1.5 - 0.085 * G.level) * (0.7 + Math.random() * 0.6);
+      if (!G.warm) {
+        G.left -= dt;
+        G.spawnIn -= dt;
+        if (G.spawnIn <= 0) {
+          spawnBubble();
+          G.spawnIn = Math.max(0.5, 1.5 - 0.085 * G.level) * (0.7 + Math.random() * 0.6);
+        }
       }
       for (let i = G.bubbles.length - 1; i >= 0; i--) {
         const b = G.bubbles[i];
@@ -4982,9 +5058,18 @@
           G.bubbles.splice(i, 1);
           G.fell++;
           szStat(b.size).fell++;
-          G.combo = 0;
           G.streakFell++;
-          SND.miss();
+          // forgiveness: once a round, a long combo survives its first miss at half rather than resetting to zero
+          if (G.combo >= 5 && G.combSave) {
+            G.combSave = false;
+            G.combo = Math.max(1, G.combo >> 1);
+            Feel.label(innerWidth / 2, innerHeight * 0.4, 'combo saved ×' + G.combo);
+            note(392, 0, 0.12, 0.18);
+            Feel.haptic(6, sndOn);
+          } else {
+            G.combo = 0;
+            SND.miss();
+          }
           // three in a row got away: ease off two levels
           if (G.streakFell >= 3) {
             G.streakFell = 0;
@@ -5064,7 +5149,7 @@
           G.expired = false;
           const m = G.bufMiss;
           G.bufMiss = null;
-          if (m && m.bd < 120) {
+          if (m && m.bd < 120 && !G.warm) {
             szStat(m.best.size).miss++;
             G.missD.push(m.bd);
             G.missPress++;
@@ -5081,7 +5166,32 @@
       G.sz = G.sz || {};
       return (G.sz[k] = G.sz[k] || { n: 0, hit: 0, fell: 0, miss: 0 });
     }
+    function warmDone() {
+      G.warm = false;
+      try {
+        localStorage.setItem('popWarmDone', '1');
+      } catch (e) {}
+      const b = G.bubbles.find((x) => x.warm);
+      if (b) {
+        if (G.fx) G.fx.push({ x: b.x, y: b.y, r: b.r, col: b.col, t0: performance.now() });
+        Feel.burst(b.x, b.y, { n: 16, speed: 440, colors: [b.col, '#fff', b.col], r: 3.6, life: 0.55, grav: 1 });
+        note(523.25, 0, 0.08, 0.2);
+        note(523.25 * 1.5, 0.05, 0.05, 0.25);
+        Feel.haptic(8, sndOn);
+      }
+      G.bubbles.length = 0;
+      G.left = GAME_LEN;
+      G.spawnIn = 0.3;
+      G.last = performance.now();
+      prompt('Here we go! 🫧', 'Now pinch them before they fall.');
+      clearTimeout(G.pt);
+      G.pt = setTimeout(() => step === 'game' && ($('prompt').hidden = true), 1600);
+    }
     function popBubble(b, t, f) {
+      if (b.warm) {
+        warmDone();
+        return;
+      }
       G.bubbles.splice(G.bubbles.indexOf(b), 1);
       szStat(b.size).hit++;
       episodeEnd(G, G.hitForgiven ? 0.5 : 1, t);
@@ -5389,7 +5499,8 @@
       lightRoundStart(performance.now());
       // the HUD's labels for this game, and no prompt timer left over from an earlier round
       $('gComboL').textContent = '📦 Delivered';
-      $('gBestL').textContent = 'Slips';
+      $('gBestL').textContent = 'Best';
+      $('gBest').textContent = '–';
       clearTimeout(G && G.pt);
       clearTimeout(C && C.pt);
       setTheme(pick('theme'));
@@ -5401,7 +5512,7 @@
       $('cur').hidden = false;
       $('gameHud').hidden = false;
       goFull();
-      C = { score: 0, i: 0, done: [], slips: 0, slipsThis: 0, saves: 0, held: false, obj: null, zone: null, left: CARRY_LEN, last: performance.now(), lastHand: 0, wasPinch: true, openSince: 0, hand: null, profiled: false, path: 0, lastP: null, t0: 0, pickT: 0, pickAt: null, openAt: 0, holdOff: [] };
+      C = { score: 0, i: 0, done: [], slips: 0, slipsThis: 0, saves: 0, held: false, obj: null, zone: null, left: CARRY_LEN, last: performance.now(), lastHand: 0, wasPinch: true, openSince: 0, hand: null, profiled: false, path: 0, lastP: null, t0: 0, pickT: 0, pickAt: null, openAt: 0, holdOff: [], clean: 0, bestClean: 0 };
       step = 'carry';
       carrySetup();
       S = {};
@@ -5415,7 +5526,6 @@
       $('gScore').textContent = C.score;
       $('gTime').textContent = Math.ceil(C.left);
       $('gCombo').textContent = C.done.length;
-      $('gBest').textContent = C.slips;
     }
     function carrySetup() {
       let cv = $('carryCv');
@@ -5563,7 +5673,7 @@
         C.hand = label;
         setHand(label);
         C.profiled = applyProfile(label);
-        $('gBest').textContent = '–';
+        $('gBest').textContent = carryBest(label);
         $('prompt').hidden = true;
         startModelRound(C, label, t, 'carry');
       }
@@ -5615,14 +5725,17 @@
                 const err = Math.hypot(o.x - z.x, o.y - z.y),
                   straight = Math.hypot(o.x - C.pickAt[0], o.y - C.pickAt[1]),
                   ms = t - (C.zoneT == null ? t : C.zoneT),
-                  bonus = Math.max(0, 5 - Math.round(err / 12));
+                  bonus = Math.max(0, 5 - Math.round(err / 12)),
+                  tier = err <= 12 ? 'Perfect' : err <= 28 ? 'Great' : err <= 50 ? 'Good' : 'Placed';
+                C.clean = C.slipsThis ? 0 : (C.clean || 0) + 1;
+                C.bestClean = Math.max(C.bestClean || 0, C.clean);
                 C.done.push({ spot: z.spot, size: z.s, errPx: Math.round(err), ms: Math.round(ms), holdMs: Math.round(t - C.pickT), eff: C.path > 1 ? Math.min(1, straight / C.path) : null, slips: C.slipsThis });
                 C.score += 10 + bonus;
                 episodeEnd(C, clamp(1 - err / 80, 0, 1) * (C.slipsThis ? 0.5 : 1), t);
                 const f0 = 523.25 * Math.pow(2, Math.min(C.done.length - 1, 12) / 12);
                 note(f0, 0, 0.08, 0.2);
                 note(f0 * 1.5, 0.05, 0.05, 0.25);
-                Feel.label(o.x, o.y, '+' + (10 + bonus), { col: '#7dff9a' });
+                Feel.label(o.x, o.y, `${tier} +${10 + bonus}${C.clean >= 3 ? ' · clean ×' + C.clean : ''}`, { col: '#7dff9a' });
                 // land the delivery: a burst in the zone, a punched score and a short buzz (a bigger bonus = a bigger burst)
                 Feel.burst(o.x, o.y, { n: 12 + bonus * 3, speed: 380, colors: ['#7dff9a', '#bfffd0', '#fff'], r: 3.2, life: 0.55, grav: 0.8 });
                 Feel.shakeFx(4, 160);
@@ -5843,7 +5956,8 @@
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       $('gComboL').textContent = '🍉 Sliced';
-      $('gBestL').textContent = 'Barrels';
+      $('gBestL').textContent = 'Best';
+      $('gBest').textContent = '–';
       clearTimeout(G && G.pt);
       clearTimeout(C && C.pt);
       if (FG) {
@@ -5896,7 +6010,6 @@
       $('gScore').textContent = FG.score;
       $('gTime').textContent = Math.ceil(Math.max(0, FG.left));
       $('gCombo').textContent = FG.sliced;
-      $('gBest').textContent = FG.barrelsHit;
     }
     function fruitPaused() {
       // the fruit game pauses only on Space / the ⏸ button — not when the hand rests, so you can slash in and out and
@@ -6521,6 +6634,7 @@
         FG.hand = label;
         setHand(label);
         FG.profiled = applyProfile(label);
+        $('gBest').textContent = fruitBest(label);
         $('prompt').hidden = true;
         startModelRound(FG, label, t, 'fruit');
         fruitSetup(label);
@@ -6631,6 +6745,15 @@
         hist = history(),
         lt = lightRoundEnd();
       endTrialRound(FG, h);
+      const fruitPrev = fruitBest(h),
+        fruitIsBest = FG.score > fruitPrev;
+      if (fruitIsBest) {
+        try {
+          const all = JSON.parse(localStorage.getItem('fruitBest') || '{}');
+          all[h] = FG.score;
+          localStorage.setItem('fruitBest', JSON.stringify(all));
+        } catch (e) {}
+      }
       const aimB0 = { model: aimBest(h, 'model'), mapping: aimBest(h, 'mapping') };
       hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'fruit', v: APP_VER, hand: h, score: FG.score, sliced: FG.sliced, thrown: FG.thrown, barrelsHit: FG.barrelsHit, barrelsThrown: FG.barrelsThrown, swipes: sws.length, cutSwipes, bestCombo: FG.bestCombo, peakV: peakV != null ? Math.round(peakV) : null, acc, lagMs, overPx: overPx != null ? Math.round(overPx) : null, dropsFast: FG.dropsFast, fastFrames: FG.fastFrames, bridged: FG.bridged || 0, bySize: FG.sz || null, gentle: FG.gentle, thr: FG.thr, swipe: FG.swipeV ? { slow: FG.swipeV.slow, mid: FG.swipeV.mid, fast: FG.swipeV.fast } : null, trained: FG.profiled, model: FG.model || null, choices: null, features: FG.features || [], use: FG.use || null, mapping: FG.mapping || null, distCm: lt.distCm ?? null });
       try {
@@ -6638,7 +6761,7 @@
       } catch (e) {}
       const pctOf = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–'),
         rows = [
-          ['Score', `<b style="color:var(--gold);font-size:1.3rem">${FG.score}</b>`],
+          ['Score', `<b style="color:var(--gold);font-size:1.3rem">${FG.score}</b>${fruitIsBest ? ' 🏆 new best!' : fruitPrev ? ` (best ${fruitPrev})` : ''}`],
           ['Hand', `${h.toLowerCase()}${FG.profiled ? ', with your trained settings' : ', default settings'}${FG.gentle ? ' · gentle mode' : ''}`],
           ['Hand model', modelSummary(FG, h)],
           ['Camera model', camSummary(FG, h)],
@@ -6655,6 +6778,8 @@
         ];
       const news = aimNews(h, FG, aimB0);
       if (news) rows.unshift(['Aim', news]);
+      const progF = progressLine(hist, 'fruit', h);
+      if (progF) rows.unshift(['Your progress', progF]);
       $('fruitSum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
       fruitGentleLabel();
       $('fruitEnd').hidden = false;
@@ -6679,6 +6804,15 @@
         hold = d.length ? median(d.map((x) => x.holdMs)) : null;
       const hist = history(),
         lt = lightRoundEnd();
+      const carryPrev = carryBest(h),
+        carryIsBest = C.score > carryPrev;
+      if (carryIsBest) {
+        try {
+          const all = JSON.parse(localStorage.getItem('carryBest') || '{}');
+          all[h] = C.score;
+          localStorage.setItem('carryBest', JSON.stringify(all));
+        } catch (e) {}
+      }
       endTrialRound(C, h);
       const aimB0 = { model: aimBest(h, 'model'), mapping: aimBest(h, 'mapping') };
       hist.push({ light: lt.light, track: lt.track, t: new Date().toISOString(), kind: 'carry', v: APP_VER, hand: h, score: C.score, deliveries: d.length, slips: C.slips, saves: C.saves, errPx: err, timeMs: ms, eff: effM, holdMs: hold, trained: C.profiled, bySpot: d, model: C.model || null, choices: null, features: C.features || [], use: C.use || null, mapping: C.mapping || null, distCm: lt.distCm ?? null });
@@ -6686,12 +6820,13 @@
         localStorage.setItem(HKEY, JSON.stringify(hist.slice(-200)));
       } catch (e) {}
       const rows = [
-        ['Score', `<b style="color:var(--gold);font-size:1.3rem">${C.score}</b>`],
+        ['Score', `<b style="color:var(--gold);font-size:1.3rem">${C.score}</b>${carryIsBest ? ' 🏆 new best!' : carryPrev ? ` (best ${carryPrev})` : ''}`],
         ['Hand', `${h.toLowerCase()}${C.profiled ? ', with your trained settings' : ', default settings'}`],
         ['Hand model', modelSummary(C, h)],
         ['Camera model', camSummary(C, h)],
         ['Delivered', `${d.length} of ${C.i + (C.zone ? 1 : 0)} squares${d.length >= CARRY_SPOTS.length ? ' (all four corners and the middle' + (d.length >= 2 * CARRY_SPOTS.length ? ', twice' : '') + ')' : ''}`],
         ['Slips', `${C.slips} (the disc dropped outside a square)${C.saves ? ` · ${C.saves} flickers of the pinch held through` : ''}`],
+        ['Cleanest streak', C.bestClean >= 2 ? `${C.bestClean} placed in a row with no slip` : '–'],
         ['Placement', err == null ? '–' : `${Math.round(err)} px from the centre, typical`],
         ['Time per delivery', ms == null ? '–' : `${(ms / 1000).toFixed(1)} s typical, from the square appearing`],
         ['Path straightness', effM == null ? '–' : `${Math.round(effM * 100)}% (100% = a straight line from pick-up to drop)`],
@@ -6705,6 +6840,8 @@
       $('carryUndo').hidden = !tune.undo;
       const newsC = aimNews(h, C, aimB0);
       if (newsC) rows.unshift(['Aim', newsC]);
+      const progC = progressLine(hist, 'carry', h);
+      if (progC) rows.unshift(['Your progress', progC]);
       $('carrySum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
       $('carryEnd').hidden = false;
       $('carryHint').hidden = false;
@@ -6762,6 +6899,8 @@
       G.tune = tune;
       const newsG = aimNews(h, G, aimB0);
       if (newsG) rows.unshift(['Aim', newsG]);
+      const progG = progressLine(hist, 'game', h);
+      if (progG) rows.unshift(['Your progress', progG]);
       $('gameSum').innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
       $('gameUndo').hidden = !tune.undo;
       $('gameEnd').hidden = false;
@@ -6874,7 +7013,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.70',
+        app: 'v0.71',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
