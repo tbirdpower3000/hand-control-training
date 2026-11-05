@@ -1168,10 +1168,9 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.69</div>
+<div id="ver" title="Hand control training, version 0.69, 5 Nov 2026">v0.70</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
-<div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
 <div id="cur" hidden></div>
 <canvas id="curCv" aria-hidden="true"></canvas>
 <div id="hudChips"><div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div><div id="distChip" hidden aria-live="polite" title="How far you sit from the camera, from the gap between your pupils (only the number is kept)">📏 <b id="distWord">–</b></div></div>
@@ -1198,7 +1197,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.69 · 5 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.70 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1251,11 +1250,17 @@
     <p class="muted" id="sitAuto" aria-live="polite">Once the camera is on, this is filled in from the gap between your eyes. You can still change it.</p>
   </fieldset>
   <fieldset>
-    <legend>Cursor</legend>
+    <legend>Cursor theme</legend>
     <div class="chips">
       <label><input type="radio" name="theme" value="ring" checked /><span>◯ Ring</span></label>
       <label><input type="radio" name="theme" value="rave" /><span>🖐 Rave hand</span></label>
       <label><input type="radio" name="theme" value="alien" /><span>🖖 Alien hand</span></label>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Cursor shape</legend>
+    <div class="chips">
+      <label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label>
     </div>
   </fieldset>
   <fieldset>
@@ -1264,7 +1269,7 @@
       <label><input type="radio" name="snd" value="on" checked /><span>🔊 On</span></label>
       <label><input type="radio" name="snd" value="off" /><span>🔇 Off</span></label>
     </div>
-    <p class="muted">With sounds on, two falling notes mean your hand has left the camera's view and a rising note means it's back, so you can shrink or hide the camera preview (slider at the bottom left during training).</p>
+    <p class="muted">With sounds on, two falling notes mean your hand has left the camera's view and a rising note means it's back.</p>
   </fieldset>
   <fieldset>
     <legend>Camera</legend>
@@ -4538,7 +4543,6 @@
       $('steps').hidden = true;
       $('prompt').hidden = true;
       $('cur').hidden = true;
-      $('camCtl').hidden = true;
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       SND.finish();
       const first = R.hands[PLAN[0]];
@@ -4727,7 +4731,6 @@
     };
     $('again').onclick = () => {
       $('done').hidden = true;
-      $('camCtl').hidden = false;
       goFull();
       begin();
     };
@@ -4788,7 +4791,6 @@
       $('steps').hidden = true;
       $('ask').hidden = true;
       $('cam').hidden = !camShow;
-      $('camCtl').hidden = false;
       $('cur').hidden = false;
       $('gameHud').hidden = false;
       goFull();
@@ -5396,7 +5398,6 @@
       $('steps').hidden = true;
       $('ask').hidden = true;
       $('cam').hidden = !camShow;
-      $('camCtl').hidden = false;
       $('cur').hidden = false;
       $('gameHud').hidden = false;
       goFull();
@@ -5855,7 +5856,6 @@
       $('steps').hidden = true;
       $('ask').hidden = true;
       $('cam').hidden = !camShow; // the webcam window is optional here (Camera option in the testing menu); off shows the edge-glow guide only
-      $('camCtl').hidden = false;
       $('cur').hidden = false;
       $('gameHud').hidden = false;
       goFull();
@@ -6613,7 +6613,6 @@
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
-      $('camCtl').hidden = true;
       $('cam').hidden = true;
       SND.finish();
       G = G || {};
@@ -6667,7 +6666,6 @@
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
-      $('camCtl').hidden = true;
       $('cam').hidden = true;
       SND.finish();
       G = G || {};
@@ -6719,7 +6717,6 @@
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
-      $('camCtl').hidden = true; // the webcam controls would cover the end card's buttons on a phone
       $('cam').hidden = true;
       SND.finish();
       G.over = { t0: performance.now(), wasPinch: true, openSince: 0 };
@@ -6877,7 +6874,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.69',
+        app: 'v0.70',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -7139,22 +7136,6 @@
       Object.keys(R).forEach((k) => ['ans', 'prior'].includes(k) || delete R[k]);
       startReach();
     }
-    // camera preview size, 0 hides it; remembered in this browser
-    const camSize = (v) => {
-      const cam = $('cam');
-      cam.style.width = Math.max(40, v) + 'px';
-      cam.classList.toggle('c-off', v === 0);
-      $('camSizeO').textContent = v === 0 ? 'hidden' : v + ' px';
-      try {
-        localStorage.setItem('trainCamSize', v);
-      } catch (e) {}
-    };
-    try {
-      const v = +localStorage.getItem('trainCamSize');
-      if (!isNaN(v) && localStorage.getItem('trainCamSize') !== null) $('camSize').value = v;
-    } catch (e) {}
-    $('camSize').addEventListener('input', (e) => camSize(+e.target.value));
-    camSize(+$('camSize').value);
     // out of view: two falling notes when the hand leaves the camera's view, one rising note when it is back
     let hadHand = false,
       lostT = 0;
@@ -7293,13 +7274,6 @@
         drawHandLabel(x, h.L, cw, ch, tag, active);
       }
     }
-    $('camSkel').checked = camSkel;
-    $('camSkel').onchange = (e) => {
-      camSkel = e.target.checked;
-      try {
-        localStorage.setItem('trainCamSkel', camSkel ? '1' : '0');
-      } catch (e2) {}
-    };
     // the webcam-window toggle lives in the pre-game testing menu (the Camera option on the intro card)
     document.querySelectorAll('input[name=camShowOpt]').forEach((r) => {
       r.checked = (r.value === 'on') === camShow;
@@ -7600,17 +7574,6 @@
       },
       true,
     );
-    $('camMove').checked = camMove;
-    $('camMove').onchange = (e) => {
-      camMove = e.target.checked;
-      try {
-        localStorage.setItem('trainCamMove', camMove ? '1' : '0');
-      } catch (e2) {}
-      if (!camMove) {
-        camQ = 'c-tr';
-        $('cam').className = camQ;
-      }
-    };
     const OPP = { 'c-tl': 'c-br', 'c-tr': 'c-bl', 'c-bl': 'c-tr', 'c-br': 'c-tl' };
     function dodge(f, t) {
       if (!camMove || t - camT < 600) return;
@@ -7942,7 +7905,6 @@
       v.srcObject = stream;
       await v.play();
       $('cam').hidden = false;
-      $('camCtl').hidden = false;
       m.textContent = 'Loading hand tracking…';
       try {
         const { FilesetResolver, HandLandmarker, FaceLandmarker } = await import(MP + '/vision_bundle.mjs');
@@ -7975,7 +7937,6 @@
     $('go').onclick = async () => {
       if (!(await startCamera($('introMsg')))) return;
       $('cam').hidden = false;
-      $('camCtl').hidden = false;
       goFull();
       begin();
     };
@@ -8049,7 +8010,6 @@
       $('fruitEnd').hidden = true;
       if (step === 'gameover') step = null;
       $('cur').hidden = true;
-      $('camCtl').hidden = true;
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       $(localStorage.getItem(KEY) ? 'done' : 'intro').hidden = false;
     };
@@ -8063,7 +8023,6 @@
       $('carryEnd').hidden = true;
       if (step === 'gameover') step = null;
       $('cur').hidden = true;
-      $('camCtl').hidden = true;
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       $(localStorage.getItem(KEY) ? 'done' : 'intro').hidden = false;
     };
@@ -8077,7 +8036,6 @@
       $('gameEnd').hidden = true;
       if (step === 'gameover') step = null;
       $('cur').hidden = true;
-      $('camCtl').hidden = true;
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       $(localStorage.getItem(KEY) ? 'done' : 'intro').hidden = false;
     };
@@ -8134,7 +8092,6 @@
           step = null;
           $('gameHud').hidden = true;
           $('steps').hidden = true;
-          $('camCtl').hidden = true;
           $('intro').hidden = false;
         };
       }
