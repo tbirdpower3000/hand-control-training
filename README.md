@@ -67,6 +67,10 @@ At the end you can **share your results with the project**. It opens a GitHub is
 
 Please read [PRIVACY.md](PRIVACY.md) first. In short: the camera never leaves your computer; sharing is optional, public, and under your GitHub account; this is not a medical test.
 
+## Seeing the tracking
+
+The webcam window can draw the tracked hand's skeleton: the 21 points MediaPipe finds, the bones between them, and the five fingertips picked out in gold, over the mirrored camera picture. It is on by default; the **👋 tracking** box in the webcam controls turns it off. It shows the hand in use in full and the ignored hand as dim dots, so you can see at a glance whether the camera has you.
+
 ## Files
 
 - `index.html`: the training page. No build step; everything is in this one file. Hand tracking is Google's MediaPipe Hand Landmarker (loaded from jsDelivr; the model from storage.googleapis.com), run entirely in your browser.
