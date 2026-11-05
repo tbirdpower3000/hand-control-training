@@ -1010,7 +1010,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.47, 4 Nov 2026">v0.47</div>
+<div id="ver" title="Hand control training, version 0.48, 4 Nov 2026">v0.48</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label></div>
@@ -1031,7 +1031,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.47 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.48 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -1419,7 +1419,7 @@
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
     const KEY = 'atlasHandAssist',
       FORMAT = 'planetary-atlas-hand-profile';
-    const APP_VER = '0.41'; // logged with each game round, so a change of rules can be told apart in the history
+    const APP_VER = '0.42'; // logged with each game round, so a change of rules can be told apart in the history
     const BASE = { snap: 28, minCut: 0.8, beta: 3, pOn: 0.3, pOff: 0.48 },
       BASE_REACH = { x0: 0.22, xs: 0.56, y0: 0.18, ys: 0.52 },
       BASE_REACH_NOW = Object.assign({}, BASE_REACH); // the default box, adjusted by your answers
@@ -5376,7 +5376,7 @@
       const cv = document.createElement('canvas');
       cv.id = 'fruitCv';
       document.body.appendChild(cv);
-      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false, sz: {}, guideGlow: null, guideCol: null };
+      FG = { cv, ctx: cv.getContext('2d'), score: 0, left: FRUIT_LEN, el: 0, last: performance.now(), lastHand: 0, hand: null, profiled: false, fruits: [], halves: [], juice: [], spawnIn: 0.8, thrown: 0, sliced: 0, barrelsHit: 0, barrelsThrown: 0, combo: 0, bestCombo: 0, swipes: [], swipe: null, post: null, trail: [], prev: null, buf: [], fastFrames: 0, dropsFast: 0, lastSpeed: 0, lastHandT: 0, flash: 0, gentle: false, thr: 800, g: 1, spacePaused: false, sz: {}, guideGlow: null, guideCol: null, prevV: null };
       fruitSetup(HAND);
       step = 'fruit';
       S = {};
@@ -5973,9 +5973,15 @@
       if (v > 10000) {
         if (FG.swipe) fruitEndSwipe(t);
         if (FG.warm) FG.warm.inBand = false; // a refound hand starts a fresh crossing
+        FG.prevV = null; // a teleport spike must not bridge the gate into the next frame
         return;
       }
       FG.lastSpeed = v;
+      // the gate opens when this frame OR the one just before it crossed the threshold. A real flick's speed dips for a
+      // single frame now and then (tracking jitter, a frame that lands long); bridging one slow frame keeps the swipe live
+      // through the dip so it still cuts, without letting a slow drift through. Two slow frames in a row still close it.
+      const gate = v >= FG.thr || (FG.prevV != null && FG.prevV >= FG.thr);
+      FG.prevV = v;
       if (FG.warm) {
         fruitWarmFrame(p, v);
         return;
@@ -5984,7 +5990,7 @@
         if (v < FG.thr) FG.grace = false;
         return;
       }
-      if (v >= FG.thr) {
+      if (gate) {
         FG.fastFrames++;
         if (!FG.swipe) {
           if (FG.post) fruitClosePost();
@@ -6275,7 +6281,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.47',
+        app: 'v0.48',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
