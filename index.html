@@ -1586,7 +1586,7 @@
     const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
     const KEY = 'atlasHandAssist',
       FORMAT = 'planetary-atlas-hand-profile';
-    const APP_VER = '0.42'; // logged with each game round, so a change of rules can be told apart in the history
+    const APP_VER = '0.43'; // logged with each game round, so a change of rules can be told apart in the history
     const BASE = { snap: 28, minCut: 0.8, beta: 3, pOn: 0.3, pOff: 0.48 },
       BASE_REACH = { x0: 0.22, xs: 0.56, y0: 0.18, ys: 0.52 },
       BASE_REACH_NOW = Object.assign({}, BASE_REACH); // the default box, adjusted by your answers
@@ -5998,6 +5998,17 @@
         u = l2 > 0 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1) : 0;
       return Math.hypot(a.x + u * dx - p.x, a.y + u * dy - p.y);
     }
+    // the slice reach: a fruit is cut when the blade's path comes within this distance of its centre. It is the fruit's own
+    // radius plus a capture field around it — the same kind of pull that draws the cursor onto a held target — so a blade
+    // that passes close by is drawn in and still connects, most of all on a fast, glancing swipe where a near miss feels
+    // wrong. The pull grows with the swipe's speed (a fast flick earns more reach) and a little more in the gentle mode. It
+    // changes only whether a cut lands; the recorded swipe speed, lag, overshoot and drops stay the raw measured values.
+    function fruitCapture(f, v) {
+      if (f.barrel) return f.r; // a barrel gets no pull: only a direct hit catches it, so the capture never makes you lose points
+      const fast = clamp((v || 0) / (FG.thr || 800) - 1, 0, 2),
+        cap = (10 + f.r * 0.28) * (FG.gentle ? 1.5 : 1) * (1 + 0.5 * fast);
+      return f.r + cap;
+    }
     // a wooden barrel: a rounded brown body, dark staves and two iron hoops; something to let pass, not to slice
     function drawBarrel(x, r) {
       const w = r * 1.5,
@@ -6198,7 +6209,7 @@
           FG.dropsFast++; // the hand was lost mid-swipe; honest even though it was recovered
           sw.slow = 0;
           sw.end = p;
-          for (const f_ of [...FG.fruits]) if (segDist(prev, p, f_) <= f_.r) sliceFruit(f_, prev, p, sw);
+          for (const f_ of [...FG.fruits]) if (segDist(prev, p, f_) <= fruitCapture(f_, v)) sliceFruit(f_, prev, p, sw);
           sw.ser.push([t, rx, ry, f.x, f.y]);
         } else if (FG.swipe) fruitEndSwipe(t);
         if (FG.warm) FG.warm.inBand = false; // a refound hand starts a fresh crossing
@@ -6230,7 +6241,7 @@
         sw.slow = 0;
         sw.end = p;
         // the path since the last frame against every fruit in flight, so a fast swipe can't jump over one
-        for (const f_ of [...FG.fruits]) if (segDist(prev, p, f_) <= f_.r) sliceFruit(f_, prev, p, sw);
+        for (const f_ of [...FG.fruits]) if (segDist(prev, p, f_) <= fruitCapture(f_, v)) sliceFruit(f_, prev, p, sw);
       } else if (FG.swipe) {
         FG.swipe.slow++;
         if (FG.swipe.slow >= 2) fruitEndSwipe(t);
