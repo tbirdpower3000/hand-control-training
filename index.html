@@ -1097,11 +1097,61 @@
   #grSkip {
     min-height: 44px;
   }
+  /* the Play / Test mode toggle at the top of the aim card */
+  .aimModeRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .aimMode {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    text-align: left;
+    padding: 12px 14px;
+    border: 1.5px solid var(--line, rgba(255, 255, 255, 0.18));
+    border-radius: 12px;
+    background: transparent;
+    cursor: pointer;
+    min-height: 64px;
+  }
+  .aimMode b {
+    font-size: 16px;
+  }
+  .aimMode small {
+    color: var(--muted, #9aa4b2);
+    line-height: 1.25;
+  }
+  .aimMode.sel {
+    border-color: var(--gold, #ffd88a);
+    background: color-mix(in srgb, var(--gold, #ffd88a) 14%, transparent);
+    box-shadow: 0 0 0 1px var(--gold, #ffd88a) inset;
+  }
+  .aimMode[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .aimAdv {
+    margin-top: 6px;
+  }
+  .aimAdv > summary {
+    cursor: pointer;
+    color: var(--muted, #9aa4b2);
+    font: 500 14px var(--mono, monospace);
+    padding: 6px 0;
+  }
+  @media (max-width: 460px) {
+    .aimModeRow {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.50, 4 Nov 2026">v0.50</div>
+<div id="ver" title="Hand control training, version 0.51, 4 Nov 2026">v0.51</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label></div>
@@ -1130,7 +1180,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.50 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.51 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -4133,6 +4183,31 @@
       }
       return best;
     }
+    // the two plain modes on top of the detailed aim choices: Play locks one steady aim (your best, your pick, or a sensible
+    // default), Test leaves both taking turns so the options are compared for the project's data. Locking just one of the two
+    // by hand is a "custom" mix that sits between them.
+    function aimMode(h) {
+      const q = profileHand(h);
+      if (!q) return 'test';
+      if (q.model && q.mapping) return 'play';
+      if (!q.model && !q.mapping) return 'test';
+      return 'custom';
+    }
+    function setAimMode(h, mode) {
+      const q = profileHand(h);
+      if (mode === 'test') {
+        lockModel(h, '');
+        lockMapping(h, '');
+        return;
+      }
+      // play: keep what you've already chosen, else your best so far, else a sensible default
+      lockModel(h, (q && q.model) || aimBest(h, 'model') || MODEL_IDS[0]);
+      const camOk = mappingsFor(q) || ['flat'],
+        bestMap = aimBest(h, 'mapping'),
+        mp = (q && q.mapping) || (bestMap && camOk.includes(bestMap) ? bestMap : 'flat');
+      lockMapping(h, mp);
+    }
+    const MODE_LABEL = { play: '🎮 Play', test: '🔬 Test', custom: '🎛 Custom' };
     function lockMapping(h, id) {
       try {
         const p = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -4189,18 +4264,33 @@
         </button>`;
       };
       const enough = (kind) => (kind === 'model' ? MODEL_IDS : MAPPING_IDS).some((id) => aimStats(h, kind, id).popRounds >= 3);
+      const mode = aimMode(h);
       $('aimBody').innerHTML = `
-        <div class="aimList"><button type="button" class="aimOpt${!lockedM && !lockedP ? ' sel' : ''}" data-kind="trial" aria-pressed="${!lockedM && !lockedP}"${q ? '' : ' disabled'}>
-          <span class="aimTop"><b>🎲 Keep comparing</b></span><small>Try them in turn, so each one gets a fair number of rounds.</small></button></div>
+        <div class="aimModeRow" role="group" aria-label="Mode">
+          <button type="button" class="aimMode${mode === 'play' ? ' sel' : ''}" data-mode="play" aria-pressed="${mode === 'play'}"${q ? '' : ' disabled'}>
+            <b>🎮 Play</b><small>One steady aim — your best so far, for the best feel.</small></button>
+          <button type="button" class="aimMode${mode === 'test' ? ' sel' : ''}" data-mode="test" aria-pressed="${mode === 'test'}"${q ? '' : ' disabled'}>
+            <b>🔬 Test</b><small>Take turns with the options to compare them (adds to the project's data).</small></button>
+        </div>
+        ${mode === 'custom' ? '<p class="muted">🎛 Custom: you’ve set one of the two by hand. Pick Play or Test above for a clean choice, or fine-tune below.</p>' : ''}
+        <details class="aimAdv" open><summary>Fine-tune the aim · per-option scores</summary>
         <h3>How the cursor follows your hand</h3>
         ${enough('model') ? '' : '<p class="muted">Play a few more rounds to compare: an option needs 3 pop rounds to be marked best.</p>'}
         <div class="aimList">${MODEL_IDS.map((id) => opt('model', id)).join('')}</div>
         <h3>How the camera picture becomes the screen</h3>
         ${enough('mapping') ? '' : '<p class="muted">Play a few more rounds to compare: an option needs 3 pop rounds to be marked best.</p>'}
-        <div class="aimList">${MAPPING_IDS.map((id) => opt('mapping', id)).join('')}</div>`;
-      $('aimNow').textContent = !q
+        <div class="aimList">${MAPPING_IDS.map((id) => opt('mapping', id)).join('')}</div></details>`;
+      $('aimNow').innerHTML = !q
         ? `Your ${h.toLowerCase()} hand isn’t trained yet: train it first to choose. The percentages still show.`
-        : `Now: ${lockedM ? aimName('model', lockedM) : 'taking turns'} for the cursor, ${lockedP ? aimName('mapping', lockedP) : 'taking turns'} for the camera.`;
+        : `Mode: <b>${MODE_LABEL[mode]}</b> — ${lockedM ? aimName('model', lockedM) : 'taking turns'} for the cursor, ${lockedP ? aimName('mapping', lockedP) : 'taking turns'} for the camera.`;
+      $('aimBody')
+        .querySelectorAll('.aimMode')
+        .forEach((b) => {
+          b.onclick = () => {
+            setAimMode(h, b.dataset.mode);
+            showAim();
+          };
+        });
       $('aimBody').querySelectorAll('.aimOpt').forEach((b) => {
         b.onclick = () => {
           const kind = b.dataset.kind,
@@ -5042,7 +5132,7 @@
       st.featuresLocked = fp_.locked;
       setFeatures(st.features);
       setModel(pick.id, t);
-      $('gModel').textContent = modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '') + ' · ' + featureCode(h, st.features) + (fp_.locked ? ' 🔒' : '') + ' · ' + mappingTag(h, mp_.id) + (mp_.locked ? ' 🔒' : '');
+      $('gModel').textContent = MODE_LABEL[aimMode(h)] + ' · ' + modelTag(h, pick.id) + (pick.locked ? ' 🔒' : '') + ' · ' + featureCode(h, st.features) + (fp_.locked ? ' 🔒' : '') + ' · ' + mappingTag(h, mp_.id) + (mp_.locked ? ' 🔒' : '');
     }
     // the round is over: the features go back off (the training steps and the end cards run plain), and the use counts
     // are kept in the profile
@@ -6402,7 +6492,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.50',
+        app: 'v0.51',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
