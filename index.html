@@ -1168,7 +1168,7 @@
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.57, 4 Nov 2026">v0.57</div>
+<div id="ver" title="Hand control training, version 0.58, 5 Nov 2026">v0.58</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label><label title="The cursor's look: the plain ring, the Pincer (two arcs that close as you pinch), or the Comet (a core with a trail and a burst on pinch).">🖱 Cursor <select id="curSel"><option value="beacon">Ring</option><option value="pincer">Pincer</option><option value="comet">Comet</option></select></label></div>
@@ -1198,7 +1198,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.57 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.58 · 5 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -4735,6 +4735,7 @@
       goFull();
       G = { openPr: [], openW: [], closedPr: [], closedW: [], missD: [], drift: [], trail: [], minPr: 9, minW: 9, hand: null, bubbles: [], score: 0, pops: 0, fell: 0, missPress: 0, combo: 0, bestCombo: 0, streakFell: 0, level: 0, left: GAME_LEN, spawnIn: 0.6, last: performance.now(), lastHand: 0, react: [], wasPinch: true, openSince: 0, profiled: false };
       step = 'game';
+      popSetup();
       S = {}; // nothing for the camera window to dodge but the cursor
       prompt('🎈 Raise a hand and pinch the bubbles before they fall', 'Move onto a bubble, then pinch thumb to index finger. Rest your hand below the waist line to pause.');
       $('gBest').textContent = '–';
@@ -4755,18 +4756,99 @@
       ['large', 84, 1],
     ];
     const bx = (b) => (b.sx != null ? b.sx : b.x); // where the bubble is drawn (it sways a little as it falls)
+    // ---- pop bubbles render on their own canvas (same immediate-mode pattern as the fruit game) instead of one DOM node
+    // each. The game logic is unchanged: it still reads bubble DATA (bx(b)/b.y/b.r); the canvas only paints that data.
+    function popSetup() {
+      let cv = $('popCv');
+      if (!cv) {
+        cv = document.createElement('canvas');
+        cv.id = 'popCv';
+        cv.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:3';
+        document.body.appendChild(cv);
+      }
+      G.cv = cv;
+      G.ctx = cv.getContext('2d');
+      G.fx = [];
+      G.capBubble = null;
+      let live = $('gameLive');
+      if (!live) {
+        live = document.createElement('div');
+        live.id = 'gameLive';
+        live.setAttribute('aria-live', 'polite');
+        live.setAttribute('role', 'status');
+        live.style.cssText = 'position:fixed;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap';
+        document.body.appendChild(live);
+      }
+    }
+    function gameSay(m) {
+      const l = $('gameLive');
+      if (l) l.textContent = m;
+    }
+    function drawBubble(x, cx, cy, r, col, hot, alpha, scale) {
+      const a = alpha == null ? 1 : alpha,
+        rr = r * (scale == null ? 1 : scale);
+      x.save();
+      x.globalAlpha = a;
+      x.shadowColor = col;
+      x.shadowBlur = 18;
+      const g = x.createRadialGradient(cx - rr * 0.16, cy - rr * 0.2, rr * 0.1, cx, cy, rr);
+      g.addColorStop(0, col + '4d'); // ~30% of the colour at the core, like the DOM radial-gradient
+      g.addColorStop(1, col);
+      x.beginPath();
+      x.arc(cx, cy, rr, 0, 7);
+      x.fillStyle = g;
+      x.fill();
+      x.lineWidth = 2;
+      x.strokeStyle = col;
+      x.stroke();
+      x.shadowBlur = 0;
+      x.beginPath();
+      x.arc(cx - rr * 0.32, cy - rr * 0.4, rr * 0.18, 0, 7);
+      x.fillStyle = 'rgba(255,255,255,0.85)';
+      x.fill();
+      if (hot) {
+        x.beginPath();
+        x.arc(cx, cy, rr + 3, 0, 7);
+        x.lineWidth = 4;
+        x.strokeStyle = 'rgba(255,216,138,0.6)';
+        x.stroke();
+      }
+      x.restore();
+    }
+    function popDraw(now) {
+      const cv = G.cv,
+        x = G.ctx;
+      if (!cv || !x) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      if (cv.width !== Math.round(innerWidth * dpr) || cv.height !== Math.round(innerHeight * dpr)) {
+        cv.width = Math.round(innerWidth * dpr);
+        cv.height = Math.round(innerHeight * dpr);
+      }
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.clearRect(0, 0, innerWidth, innerHeight);
+      for (const b of G.bubbles) drawBubble(x, bx(b), b.y, b.r, b.col, b === G.capBubble);
+      // a pop: the bubble scales up to 1.6 and fades over ~180 ms, matching the old .popped CSS
+      if (G.fx) {
+        for (let i = G.fx.length - 1; i >= 0; i--) {
+          const e = G.fx[i],
+            u = (now - e.t0) / 180;
+          if (u >= 1) {
+            G.fx.splice(i, 1);
+            continue;
+          }
+          drawBubble(x, e.x, e.y, e.r, e.col, false, 1 - u, 1 + 0.6 * u);
+        }
+      }
+    }
     function spawnBubble() {
       const H = innerHeight,
         sz = SIZES[(Math.random() * SIZES.length) | 0],
         d = sz[1],
-        x = d / 2 + 24 + Math.random() * (innerWidth - d - 48),
-        el = tgt('bubble', x, -d / 2);
-      el.style.width = el.style.height = d + 'px';
+        x = d / 2 + 24 + Math.random() * (innerWidth - d - 48);
       const col = BCOL[(Math.random() * BCOL.length) | 0];
-      el.style.setProperty('--bc', col);
       // fall speed grows with the level: about 8 s top to bottom at the start, about 2.5 s at the top level
       const v = H * (0.12 + 0.025 * G.level) * (0.85 + Math.random() * 0.3);
-      G.bubbles.push({ el, x, y: -d / 2, r: d / 2, v, born: performance.now(), drift: (Math.random() - 0.5) * 30, ph: Math.random() * 6, size: sz[0], pts: sz[2], col });
+      G.bubbles.push({ x, y: -d / 2, r: d / 2, v, born: performance.now(), drift: (Math.random() - 0.5) * 30, ph: Math.random() * 6, size: sz[0], pts: sz[2], col });
       szStat(sz[0]).n++;
     }
     function gamePaused(now) {
@@ -4796,11 +4878,8 @@
         b.y += b.v * dt;
         b.ph += dt * 2;
         b.sx = b.x + Math.sin(b.ph) * b.drift * 0.3;
-        b.el.style.left = b.sx + 'px';
-        b.el.style.top = b.y + 'px';
         if (b.y - b.r > innerHeight) {
           G.bubbles.splice(i, 1);
-          b.el.remove();
           G.fell++;
           szStat(b.size).fell++;
           G.combo = 0;
@@ -4818,6 +4897,7 @@
           }
         }
       }
+      popDraw(now);
       hud();
       if (G.left <= 0) endGame();
     }
@@ -4844,7 +4924,7 @@
       // each bubble is a field that moves with it; the captured bubble is the one a pinch pops
       const fp = FLD.step(f, G.bubbles.map((b) => ({ key: b, cx: bx(b), cy: b.y, dist: (x, y) => Math.hypot(x - bx(b), y - b.y) - b.r })), t, curSnap, curHold);
       showCur(fp.x, fp.y);
-      G.bubbles.forEach((b) => b.el.classList.toggle('hot', b === fp.cap));
+      G.capBubble = fp.cap;
       // samples for tuning: the pinch ratio of an open hand while aiming at a bubble, the firmest point of each pinch, and
       // how far the cursor slid in the 150 ms before a press (pinching drags the palm point)
       G.trail.push([t, f.x, f.y]);
@@ -4908,8 +4988,7 @@
       // for throughput: how far this pop was from the last one (the move's amplitude) and how long it took
       if (G.lastPop) (G.moves = G.moves || []).push([Math.hypot(bx(b) - G.lastPop[0], b.y - G.lastPop[1]), Math.max(0.05, (t - G.lastPop[2]) / 1000), 2 * b.r]);
       G.lastPop = [bx(b), b.y, t];
-      b.el.classList.add('popped');
-      setTimeout(() => b.el.remove(), 200);
+      if (G.fx) G.fx.push({ x: bx(b), y: b.y, r: b.r, col: b.col, t0: performance.now() });
       G.pops++;
       G.combo++;
       G.bestCombo = Math.max(G.bestCombo, G.combo);
@@ -5231,6 +5310,7 @@
       goFull();
       C = { score: 0, i: 0, done: [], slips: 0, slipsThis: 0, saves: 0, held: false, obj: null, zone: null, left: CARRY_LEN, last: performance.now(), lastHand: 0, wasPinch: true, openSince: 0, hand: null, profiled: false, path: 0, lastP: null, t0: 0, pickT: 0, pickAt: null, openAt: 0, holdOff: [] };
       step = 'carry';
+      carrySetup();
       S = {};
       prompt('📦 Pick up the disc: move onto it, pinch and hold', 'Carry it into the shaded square and open your hand to drop it. Rest your hand below the waist line to pause.');
       placeDisc(innerWidth / 2, innerHeight / 2);
@@ -5244,32 +5324,118 @@
       $('gCombo').textContent = C.done.length;
       $('gBest').textContent = C.slips;
     }
+    function carrySetup() {
+      let cv = $('carryCv');
+      if (!cv) {
+        cv = document.createElement('canvas');
+        cv.id = 'carryCv';
+        cv.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:3';
+        document.body.appendChild(cv);
+      }
+      C.cv = cv;
+      C.ctx = cv.getContext('2d');
+      C.got = null; // a delivered-zone flash {x,y,s,t0}
+    }
+    function roundRect(x, px, py, w, h, r) {
+      x.beginPath();
+      x.moveTo(px + r, py);
+      x.arcTo(px + w, py, px + w, py + h, r);
+      x.arcTo(px + w, py + h, px, py + h, r);
+      x.arcTo(px, py + h, px, py, r);
+      x.arcTo(px, py, px + w, py, r);
+      x.closePath();
+    }
+    function drawZone(x, cx, cy, s, state, label, alpha) {
+      const half = s / 2,
+        solid = state === 'ok' || state === 'got';
+      x.save();
+      x.globalAlpha = alpha == null ? 1 : alpha;
+      x.fillStyle = state === 'got' ? 'rgba(125,255,154,0.4)' : state === 'ok' ? 'rgba(125,255,154,0.22)' : 'rgba(90,170,255,0.18)';
+      x.strokeStyle = solid ? '#7dff9a' : 'rgba(120,190,255,0.9)';
+      x.lineWidth = 3;
+      if (!solid) x.setLineDash([9, 7]);
+      roundRect(x, cx - half, cy - half, s, s, 18);
+      x.fill();
+      x.stroke();
+      x.setLineDash([]);
+      if (label) {
+        x.fillStyle = 'rgba(190,225,255,0.95)';
+        x.textAlign = 'center';
+        x.textBaseline = 'middle';
+        x.font = '600 ' + Math.max(14, Math.round(s * 0.2)) + 'px var(--mono, monospace)';
+        x.fillText(label, cx, cy);
+      }
+      x.restore();
+    }
+    function drawDisc(x, cx, cy, r, hot, held) {
+      const rr = r * (held ? 1.12 : 1);
+      x.save();
+      x.shadowColor = 'rgba(0,0,0,0.45)';
+      x.shadowBlur = 16;
+      x.shadowOffsetY = held ? 10 : 4;
+      const g = x.createRadialGradient(cx - rr * 0.28, cy - rr * 0.36, rr * 0.1, cx, cy, rr);
+      g.addColorStop(0, '#fff3c4');
+      g.addColorStop(0.55, '#ffd88a');
+      g.addColorStop(1, '#b8862a');
+      x.beginPath();
+      x.arc(cx, cy, rr, 0, 7);
+      x.fillStyle = g;
+      x.fill();
+      x.shadowBlur = 0;
+      x.shadowOffsetY = 0;
+      x.lineWidth = 2;
+      x.strokeStyle = '#ffe9a8';
+      x.stroke();
+      if (hot || held) {
+        x.beginPath();
+        x.arc(cx, cy, rr + 3, 0, 7);
+        x.lineWidth = 4;
+        x.strokeStyle = 'rgba(255,216,138,' + (held ? 0.7 : 0.6) + ')';
+        x.stroke();
+      }
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.font = Math.round(rr * 0.9) + 'px serif';
+      x.fillText('🪙', cx, cy);
+      x.restore();
+    }
+    function carryDraw(now) {
+      const cv = C.cv,
+        x = C.ctx;
+      if (!cv || !x) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      if (cv.width !== Math.round(innerWidth * dpr) || cv.height !== Math.round(innerHeight * dpr)) {
+        cv.width = Math.round(innerWidth * dpr);
+        cv.height = Math.round(innerHeight * dpr);
+      }
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.clearRect(0, 0, innerWidth, innerHeight);
+      if (C.got) {
+        const u = (now - C.got.t0) / 450; // the just-delivered square fades out, like the old .got CSS
+        if (u >= 1) C.got = null;
+        else drawZone(x, C.got.x, C.got.y, C.got.s, 'got', null, 1 - u);
+      }
+      const z = C.zone;
+      if (z) drawZone(x, z.x, z.y, z.s, z.ok ? 'ok' : '', z.spot, 1);
+      const o = C.obj;
+      if (o) drawDisc(x, o.x, o.y, o.r, o.hot && !C.held, C.held);
+    }
     function placeDisc(x, y) {
-      if (C.obj) C.obj.el.remove();
       x = clamp(x, 40, innerWidth - 40);
       y = clamp(y, 40, innerHeight - 40);
-      const el = tgt('carryObj', x, y, '🪙');
-      C.obj = { el, x, y, r: 30 };
+      C.obj = { x, y, r: 30, hot: false };
     }
     function moveDisc(x, y) {
       C.obj.x = x;
       C.obj.y = y;
-      C.obj.el.style.left = x + 'px';
-      C.obj.el.style.top = y + 'px';
     }
     function nextZone() {
-      if (C.zone) {
-        const old = C.zone.el;
-        old.classList.add('got');
-        setTimeout(() => old.remove(), 450);
-      }
+      if (C.zone) C.got = { x: C.zone.x, y: C.zone.y, s: C.zone.s, t0: performance.now() };
       const spot = CARRY_SPOTS[C.i % CARRY_SPOTS.length],
         sz = CARRY_SIZES[Math.min(CARRY_SIZES.length - 1, Math.floor(C.i / CARRY_SPOTS.length))],
         x = clamp(spot[1] * innerWidth, sz / 2 + 8, innerWidth - sz / 2 - 8),
-        y = clamp(spot[2] * innerHeight, sz / 2 + 8, innerHeight - sz / 2 - 8),
-        el = tgt('carryZone', x, y, spot[0]);
-      el.style.width = el.style.height = sz + 'px';
-      C.zone = { el, x, y, s: sz, spot: spot[0], dist: (px, py) => Math.max(Math.abs(px - x), Math.abs(py - y)) - sz / 2 };
+        y = clamp(spot[2] * innerHeight, sz / 2 + 8, innerHeight - sz / 2 - 8);
+      C.zone = { x, y, s: sz, spot: spot[0], ok: false, dist: (px, py) => Math.max(Math.abs(px - x), Math.abs(py - y)) - sz / 2 };
       C.t0 = performance.now();
       C.zoneT = null;
     }
@@ -5290,6 +5456,7 @@
         $('prompt').hidden = true;
       }
       C.left -= dt;
+      carryDraw(now);
       carryHud();
       if (C.left <= 0) endCarry();
     }
@@ -5311,7 +5478,7 @@
       const fp = FLD.step(f, items, t, curSnap, curHold);
       if (C.zoneT == null) C.zoneT = t;
       showCur(fp.x, fp.y);
-      o.el.classList.toggle('hot', !C.held && fp.cap === o);
+      o.hot = !C.held && fp.cap === o;
       if (!f.pinch) C.openSince = C.openSince || t;
       const fresh = f.pinch && !C.wasPinch && C.openSince && t - C.openSince > 150;
       if (!carryPaused(performance.now())) {
@@ -5326,7 +5493,6 @@
             C.lastP = [fp.x, fp.y];
             C.openAt = 0;
             C.slipsThis = 0;
-            o.el.classList.add('held');
             SND.tap();
             juice(fp.x, fp.y, null);
           }
@@ -5338,7 +5504,7 @@
           C.lastP = [fp.x, fp.y];
           moveDisc(fp.x, fp.y);
           const inside = z.dist(o.x, o.y) <= 0;
-          z.el.classList.toggle('ok', inside);
+          z.ok = inside;
           if (f.pinch) {
             if (C.openAt) C.saves++;
             C.openAt = 0;
@@ -5347,8 +5513,7 @@
             if (t - C.openAt > 80) {
               C.held = false;
               C.openAt = 0;
-              o.el.classList.remove('held');
-              z.el.classList.remove('ok');
+              z.ok = false;
               if (inside) {
                 const err = Math.hypot(o.x - z.x, o.y - z.y),
                   straight = Math.hypot(o.x - C.pickAt[0], o.y - C.pickAt[1]),
@@ -6329,8 +6494,7 @@
     }
     function endCarry() {
       step = 'gameover';
-      if (C.obj) C.obj.el.remove();
-      if (C.zone) C.zone.el.remove();
+      if (C.cv) { C.cv.remove(); C.cv = null; }
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
@@ -6380,8 +6544,9 @@
     }
     function endGame() {
       step = 'gameover';
-      G.bubbles.forEach((b) => b.el.remove());
       G.bubbles = [];
+      if (G.cv) { G.cv.remove(); G.cv = null; }
+      gameSay('Game over. Score ' + G.score + ', best combo ' + G.bestCombo + '.');
       clearTargets();
       $('gameHud').hidden = true;
       $('prompt').hidden = true;
@@ -6543,7 +6708,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.57',
+        app: 'v0.58',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -7235,8 +7400,16 @@
       // the window's quadrant, grown by a margin: anything entering it is "close"
       const m = 90,
         inside = (x, y) => x > r.left - m && x < r.right + m && y > r.top - m && y < r.bottom + m;
-      const tEl = S && S.el ? S.el : step === 'carry' && C ? (C.held ? C.zone && C.zone.el : C.obj && C.obj.el) : null,
-        tg = tEl ? tEl.getBoundingClientRect() : null;
+      // the active target's box, from DATA now that the carry objects are canvas (no DOM element to measure)
+      let tg = null;
+      if (S && S.el) tg = S.el.getBoundingClientRect();
+      else if (step === 'carry' && C) {
+        const o = C.held ? C.zone : C.obj;
+        if (o) {
+          const half = C.held ? o.s / 2 : o.r;
+          tg = { left: o.x - half, top: o.y - half, width: half * 2, height: half * 2 };
+        }
+      }
       const near = inside(f.x, f.y) || (tg && inside(tg.left + tg.width / 2, tg.top + tg.height / 2));
       if (!near) return;
       let q = OPP[camQ];
@@ -7695,10 +7868,9 @@
           FG.halves = [];
         }
         if (held === 'carry' && C) {
-          if (C.obj) C.obj.el.remove();
-          if (C.zone) C.zone.el.remove();
+          if (C.cv) { C.cv.remove(); C.cv = null; }
         }
-        if (held === 'game' && G && G.bubbles) G.bubbles.forEach((b) => b.el.remove());
+        if (held === 'game' && G && G.bubbles) { G.bubbles.length = 0; if (G.cv) { G.cv.remove(); G.cv = null; } }
         clearTargets();
         const card = document.createElement('section');
         card.className = 'card';
