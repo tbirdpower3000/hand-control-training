@@ -1006,16 +1006,115 @@
       padding: 3px 7px;
     }
   }
+  /* get-ready: a short self-view + countdown before a round, so you can see tracking is live and you're framed */
+  #getReady {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 14, 0.82);
+    backdrop-filter: blur(3px);
+  }
+  #grPanel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    max-width: 92vw;
+  }
+  #grTitle {
+    font: 600 18px var(--mono, monospace);
+    color: var(--gold, #ffd88a);
+    text-align: center;
+  }
+  #grView {
+    position: relative;
+    width: min(62vw, 46vh, 520px);
+    aspect-ratio: 4 / 3;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--line, rgba(255, 255, 255, 0.18));
+    background: #0a0e16;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  }
+  #grCam {
+    width: 100%;
+    height: 100%;
+    display: block;
+    transform: scaleX(-1); /* mirror the whole view (picture + skeleton) so it reads like a mirror */
+  }
+  #grCount {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 700 clamp(64px, 18vh, 140px) var(--mono, monospace);
+    color: #fff;
+    text-shadow: 0 2px 24px rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+  }
+  #grCount.pulse {
+    animation: grPulse 0.6s ease-out;
+  }
+  @keyframes grPulse {
+    from {
+      transform: scale(1.5);
+      opacity: 0.2;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  #grHint {
+    font: 500 15px var(--mono, monospace);
+    color: #fff;
+    text-align: center;
+    min-height: 20px;
+  }
+  #grHint.warn {
+    color: #ffb347;
+  }
+  #grRow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #grRow label {
+    font: 500 13px var(--mono, monospace);
+    color: var(--muted, #9aa4b2);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  #grSkip {
+    min-height: 44px;
+  }
 </style>
 </head>
 <body>
 <div id="room" aria-hidden="true"></div>
-<div id="ver" title="Hand control training, version 0.49, 4 Nov 2026">v0.49</div>
+<div id="ver" title="Hand control training, version 0.50, 4 Nov 2026">v0.50</div>
 <div id="steps" hidden><span id="handBadge" class="hand"></span><span data-s="reach">1 Reach</span><span data-s="pinch">2 Pinch</span><span data-s="still">3 Hold still</span><span data-s="aim">4 Targets</span><span data-s="fast">5 Fast</span></div>
 <div id="cam" hidden class="c-tr"><video id="vid" playsinline muted></video><canvas id="cv"></canvas></div>
 <div id="camCtl" hidden><label>📷 Webcam window <input id="camSize" type="range" min="0" max="320" step="20" value="180" aria-label="Webcam window size; 0 hides it" /></label><span id="camSizeO">180 px</span><label title="Moving: the window snaps to the opposite quadrant when the cursor or a target comes near. Stationary: it stays in the top right."><input id="camMove" type="checkbox" checked /> moving</label><label title="Draw the tracked hand's skeleton on the webcam window, so you can see what the camera sees."><input id="camSkel" type="checkbox" checked /> 👋 tracking</label></div>
 <div id="cur" hidden></div>
 <div id="hudChips"><div id="lightChip" hidden aria-live="polite" title="The room's light, measured from the camera picture (no picture is kept)">☀ <b id="lightWord">–</b></div><div id="distChip" hidden aria-live="polite" title="How far you sit from the camera, from the gap between your pupils (only the number is kept)">📏 <b id="distWord">–</b></div></div>
+<div id="getReady" hidden>
+  <div id="grPanel">
+    <div id="grTitle">Get ready</div>
+    <div id="grView"><canvas id="grCam"></canvas><div id="grCount"></div></div>
+    <div id="grHint">✋ Show your hand to the camera</div>
+    <div id="grRow"><button type="button" id="grSkip">Start now</button><label><input type="checkbox" id="grNever" /> Skip the countdown next time</label></div>
+  </div>
+</div>
 <div id="gameHud" hidden aria-live="off"><span>Score <b id="gScore">0</b></span><span>⏱ <b id="gTime">45</b></span><span><i id="gComboL">Combo</i> <b id="gCombo">0</b></span><span>🖐 <b id="gModel">–</b></span><span><i id="gBestL">Best</i> <b id="gBest">0</b></span></div>
 <div id="prompt" role="status" aria-live="polite" hidden></div>
 <div id="ask" role="dialog" aria-labelledby="askQ" hidden>
@@ -1031,7 +1130,7 @@
 </div>
 
 <section class="card" id="intro">
-  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.49 · 4 Nov 2026</span></h1>
+  <h1>Hand control training <span style="font: 0.8rem var(--mono); color: var(--muted)">v0.50 · 4 Nov 2026</span></h1>
   <p>
     About a minute of exercises that teach the Planetary Modeling Atlas how <em>your</em> hand moves, so the cursor reaches the
     whole screen, your pinch is read reliably, and buttons are as easy to hit as you need.
@@ -4487,6 +4586,7 @@
       }
     }
     function startGame() {
+      if (readyGate(startGame, '🫧 Pop the bubbles')) return;
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       $('gComboL').textContent = 'Combo';
@@ -4981,6 +5081,7 @@
       CARRY_SIZES = [170, 130, 100];
     let C = null;
     function startCarry() {
+      if (readyGate(startCarry, '📦 Carry & place')) return;
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       // the HUD's labels for this game, and no prompt timer left over from an earlier round
@@ -5353,6 +5454,7 @@
       FG.g = (8 * 0.6 * innerHeight) / (FG.gentle ? 3.2 : 2.4) ** 2;
     }
     function startFruit() {
+      if (readyGate(startFruit, '🍉 Slice the fruit')) return;
       ['intro', 'done', 'share', 'compare', 'gameEnd', 'carryEnd', 'fruitEnd', 'aim'].forEach((id) => ($(id).hidden = true));
       lightRoundStart(performance.now());
       $('gComboL').textContent = '🍉 Sliced';
@@ -6300,7 +6402,7 @@
       return {
         format: 'hand-training-replay',
         version: 1,
-        app: 'v0.49',
+        app: 'v0.50',
         screen: [innerWidth, innerHeight],
         waist: +WAIST.toFixed(3),
         reach: reach ? { x0: r3(reach.x0), xs: r3(reach.xs), y0: r3(reach.y0), ys: r3(reach.ys) } : null,
@@ -6642,6 +6744,119 @@
         localStorage.setItem('trainCamSkel', camSkel ? '1' : '0');
       } catch (e2) {}
     };
+
+    // ---- get ready: a short countdown with a live self-view before a round, so you can confirm the camera sees your hand
+    // and you're framed before it starts. It counts 3-2-1 only while a hand is tracked; if the hand is lost it waits. The
+    // gate sits at the top of each game's start function, so every way of starting a round passes through it; it is skipped
+    // when there is no camera (mouse play) or when you've turned it off.
+    const READY = { skip: false, raf: 0, since: 0, go: null, last: 3 };
+    const READY_MS = 1800; // 3 counts of 600 ms once a hand is held
+    function camLive() {
+      const v = $('vid');
+      return !!(v && v.srcObject && v.videoWidth > 0);
+    }
+    function readyOff() {
+      try {
+        return localStorage.getItem('trainReadySkip') === '1';
+      } catch (e) {
+        return false;
+      }
+    }
+    // returns true if it has taken over (the caller should abort and let the countdown re-start it); false to start now
+    function readyGate(go, title) {
+      if (READY.skip || readyOff() || !camLive()) {
+        READY.skip = false;
+        return false;
+      }
+      showReady(go, title);
+      return true;
+    }
+    function finishReady() {
+      cancelAnimationFrame(READY.raf);
+      READY.raf = 0;
+      READY.since = 0;
+      $('getReady').hidden = true;
+      const go = READY.go;
+      READY.go = null;
+      if (go) {
+        READY.skip = true; // the game's start function runs through its gate once more, now cleared
+        go();
+      }
+    }
+    function showReady(go, title) {
+      READY.go = go;
+      READY.since = 0;
+      READY.last = 3;
+      $('grTitle').textContent = title || 'Get ready';
+      $('grCount').textContent = '';
+      $('grHint').textContent = '✋ Show your hand to the camera';
+      $('grHint').classList.add('warn');
+      $('grNever').checked = false;
+      $('getReady').hidden = false;
+      cancelAnimationFrame(READY.raf);
+      const tick = () => {
+        READY.raf = requestAnimationFrame(tick);
+        const now = performance.now(),
+          cv = $('grCam'),
+          v = $('vid');
+        // the self-view: the webcam picture with the tracked hand's skeleton (the whole canvas is mirrored by CSS)
+        if (v && v.videoWidth) {
+          if (cv.width !== v.videoWidth) {
+            cv.width = v.videoWidth;
+            cv.height = v.videoHeight;
+          }
+          const x = cv.getContext('2d');
+          x.clearRect(0, 0, cv.width, cv.height);
+          x.drawImage(v, 0, 0, cv.width, cv.height);
+          if (LASTL) drawSkeleton(x, LASTL, cv.width, cv.height);
+        }
+        // count 3-2-1 only while a hand is actually tracked; if it's lost, hold and ask for it back
+        if (hadHand && LASTL) {
+          if (!READY.since) READY.since = now;
+          $('grHint').textContent = 'Keep your hand up and steady';
+          $('grHint').classList.remove('warn');
+          const left = Math.max(0, READY_MS - (now - READY.since)),
+            n = Math.max(1, Math.ceil(left / (READY_MS / 3)));
+          if (left <= 0) return finishReady();
+          if (n !== READY.last) {
+            READY.last = n;
+            $('grCount').textContent = n;
+            $('grCount').classList.remove('pulse');
+            void $('grCount').offsetWidth; // restart the pop animation
+            $('grCount').classList.add('pulse');
+            note(523.25 + (3 - n) * 130, 0, 0.05, 0.35); // a rising tick per count
+          }
+        } else {
+          READY.since = 0;
+          READY.last = 3;
+          $('grCount').textContent = '';
+          $('grHint').textContent = '✋ Show your hand to the camera';
+          $('grHint').classList.add('warn');
+        }
+      };
+      READY.raf = requestAnimationFrame(tick);
+    }
+    $('grSkip').onclick = () => finishReady();
+    $('grNever').onchange = (e) => {
+      if (e.target.checked) {
+        try {
+          localStorage.setItem('trainReadySkip', '1');
+        } catch (e2) {}
+        finishReady();
+      }
+    };
+    // while the get-ready view is up, Space or Enter starts now; it isn't a game control yet, so there's nothing to clash with
+    document.addEventListener(
+      'keydown',
+      (e) => {
+        if (!$('getReady').hidden && (e.code === 'Space' || e.code === 'Enter')) {
+          e.preventDefault();
+          e.stopPropagation();
+          finishReady();
+        }
+      },
+      true,
+    );
     $('camMove').checked = camMove;
     $('camMove').onchange = (e) => {
       camMove = e.target.checked;
