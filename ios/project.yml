@@ -1,0 +1,36 @@
+# Built by .github/workflows/ios.yml with XcodeGen; there is no Xcode project file in the repository.
+name: FruitVR
+options:
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  FruitVR:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Assets.xcassets
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Fruit VR
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
+        NSCameraUsageDescription: The rear camera finds your hand so it can be the blade, and shows your room behind the fruit. The picture stays on this phone.
+        NSMotionUsageDescription: Motion sensors let the view follow your head.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.tbirdpower3000.fruitvr
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
