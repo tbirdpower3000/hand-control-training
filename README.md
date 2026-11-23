@@ -93,3 +93,5 @@ Each round is saved in this browser (`fruitVRRounds`): fruit sliced, swipes that
 
 iPhone browsers have no WebXR, so the page does its own stereo view and head tracking; there is no lens-distortion correction.
 
+The view follows the phone, not the page: if the phone's rotation lock keeps the page upright, the motion sensors show which way the phone was turned and the split view (and the camera picture) is drawn sideways to match. The round clock waits while the phone is upright. **Widest camera (0.5×)** opens the ultra-wide rear camera where the phone has one.
+
