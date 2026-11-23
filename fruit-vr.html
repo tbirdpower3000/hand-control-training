@@ -23,6 +23,8 @@
   button { font: inherit; color: var(--ink); background: #1b2740; border: 1px solid var(--rule); border-radius: 10px; padding: 10px 16px; }
   button.primary { background: var(--gold); color: #1a1407; border-color: var(--gold); font-weight: 700; width: 100%; padding: 14px; font-size: 1.1rem; margin-top: 14px; }
   .scroll { overflow-x: auto; }
+  #qr { background: #fff; padding: 12px; border-radius: 10px; width: min(240px, 70vw); }
+  #qr svg { display: block; width: 100%; height: auto; }
   table { border-collapse: collapse; width: 100%; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
   th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
@@ -53,6 +55,11 @@
 
   <h2>How to play</h2>
   <p class="muted">1. Press Start and allow motion (and the camera, if asked). 2. Turn the phone sideways and put it in the viewer. 3. A round lasts 60 seconds. When it ends, look at the panel for two seconds, or press the viewer's button, to play again. Turn the phone upright to come back here.</p>
+
+  <h2>Open on your phone</h2>
+  <p class="muted">Scan this with the phone's camera, or with the scanner in the browser you want to play in. It opens this page.</p>
+  <div id="qr" role="img" aria-label="QR code for this page's address"></div>
+  <p class="muted" id="qrUrl" style="word-break: break-all"></p>
 
   <h2>Your rounds</h2>
   <div class="scroll"><table id="rounds"></table></div>
@@ -103,6 +110,23 @@
     $('biasNote').textContent = b.n ? `Aim correction in use for the hand blade: ${Math.abs(b.x).toFixed(1)}° ${b.x > 0 ? 'left' : 'right'} and ${Math.abs(b.y).toFixed(1)}° ${b.y > 0 ? 'down' : 'up'}, learned over ${b.n} round${b.n === 1 ? '' : 's'}.` : '';
   }
   drawRounds();
+  // a QR code for this page's own address (without any ?options), so it can be opened on the phone by scanning the screen
+  (function () {
+    const url = location.origin + location.pathname;
+    $('qrUrl').textContent = url;
+    const sc = document.createElement('script');
+    sc.src = 'vendor/qrcode-generator.js'; // qrcode-generator 1.4.4, Kazuhiko Arase, MIT licence
+    sc.onload = () => {
+      try {
+        const q = qrcode(0, 'M');
+        q.addData(url);
+        q.make();
+        $('qr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 0, scalable: true });
+      } catch (e) { $('qr').hidden = true; }
+    };
+    sc.onerror = () => { $('qr').hidden = true; };
+    document.head.appendChild(sc);
+  })();
   $('copy').onclick = async () => {
     const txt = JSON.stringify({ rounds: store.get('fruitVRRounds', []), bias: store.get('fruitVRBias', null) }, null, 1);
     try { await navigator.clipboard.writeText(txt); say('Results copied.'); } catch (e) { say('Copying is blocked here.'); }
