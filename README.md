@@ -80,3 +80,16 @@ The webcam window can draw the tracked hand's skeleton: the 21 points MediaPipe 
 ## Credits and licence
 
 Built with Claude by tbirdpower3000 and contributors, for the Planetary Modeling Atlas. Hand tracking: [MediaPipe](https://ai.google.dev/edge/mediapipe) (Apache-2.0). Fonts: Instrument Sans and JetBrains Mono via Google Fonts. The sounds are made in the page with the Web Audio API. The code in this repository is released under the Apache-2.0 licence (see LICENSE).
+
+## Fruit Slicer VR (`fruit-vr.html`)
+
+A separate page for a phone in a Google Cardboard viewer. It draws a left and right eye view, follows your head with the phone's motion sensors, and throws fruit up in front of you for 60 seconds.
+
+- **Blade: my hand.** The rear camera finds your hand in front of the viewer (the same MediaPipe hand tracker as the training page) and your index fingertip is the blade. The viewer must leave the rear camera uncovered.
+- **Blade: my gaze.** The blade sits where you look; sweep your head across the fruit. Used automatically if the camera or the hand tracker is not available.
+- **See my room** shows the rear camera behind the fruit instead of the virtual room.
+
+Each round is saved in this browser (`fruitVRRounds`): fruit sliced, swipes that cut, swipe speed, how often the hand was lost, how many times a second the hand was found, and how far to the side of each fruit the blade passed. From those side misses the page works out any steady aim error of the hand blade and moves the blade half-way back for the next round (`fruitVRBias`, at most 6 degrees). The camera picture never leaves the phone. These rounds are kept apart from the training page's history.
+
+iPhone browsers have no WebXR, so the page does its own stereo view and head tracking; there is no lens-distortion correction.
+

@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#070b14" />
+<title>Fruit Slicer VR</title>
+<style>
+  :root { --space: #070b14; --panel: #101827; --ink: #e9eef5; --muted: #9fb0c6; --gold: #ffd88a; --rule: #26344a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--space); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  [hidden] { display: none !important; }
+  #setup { max-width: 640px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left)); }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 22px 0 6px; color: var(--gold); }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 0.92rem; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-top: 12px; }
+  label.opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; }
+  label.opt input { margin-top: 5px; width: 18px; height: 18px; flex: none; }
+  button { font: inherit; color: var(--ink); background: #1b2740; border: 1px solid var(--rule); border-radius: 10px; padding: 10px 16px; }
+  button.primary { background: var(--gold); color: #1a1407; border-color: var(--gold); font-weight: 700; width: 100%; padding: 14px; font-size: 1.1rem; margin-top: 14px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  #vr { position: fixed; inset: 0; background: #000; touch-action: none; }
+  #vr canvas { display: block; width: 100%; height: 100%; }
+  #mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.35); }
+  #leave { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); font-size: 0.75rem; padding: 4px 10px; opacity: 0.55; }
+  #turn { position: fixed; inset: 0; background: rgba(7, 11, 20, 0.94); display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 1.1rem; }
+  video { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<main id="setup">
+  <h1>🍉 Fruit Slicer VR</h1>
+  <p class="muted">For a phone in a Google Cardboard viewer. Fruit is thrown up in front of you; cut it before it falls.</p>
+
+  <div class="card">
+    <h2 style="margin-top:0">Blade</h2>
+    <label class="opt"><input type="radio" name="blade" value="hand" checked /><span><b>My hand</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer and swipe through the fruit with your index finger. The viewer must leave the phone's rear camera uncovered.</span></span></label>
+    <label class="opt"><input type="radio" name="blade" value="head" /><span><b>My gaze</b><br /><span class="muted">The blade sits where you look; sweep your head across the fruit. No camera needed.</span></span></label>
+    <label class="opt"><input type="checkbox" id="room" checked /><span><b>See my room</b><br /><span class="muted">Shows the rear camera behind the fruit instead of the virtual room.</span></span></label>
+    <button class="primary" id="go">Start</button>
+    <p class="muted" id="status" role="status"></p>
+  </div>
+
+  <h2>How to play</h2>
+  <p class="muted">1. Press Start and allow motion (and the camera, if asked). 2. Turn the phone sideways and put it in the viewer. 3. A round lasts 60 seconds. When it ends, look at the panel for two seconds, or press the viewer's button, to play again. Turn the phone upright to come back here.</p>
+
+  <h2>Your rounds</h2>
+  <div class="scroll"><table id="rounds"></table></div>
+  <p class="muted" id="biasNote"></p>
+  <p><button id="copy">Copy results</button> <button id="clear">Clear</button></p>
+  <p class="muted">Rounds are kept in this browser only. The camera picture is used on this phone to find your hand and is never stored or sent anywhere. Each round records how often swipes cut, how fast they were, how often the hand was lost, and how far off-centre the blade passed, so the aim can be corrected for the next round.</p>
+</main>
+
+<div id="vr" hidden>
+  <div id="mid" hidden></div>
+  <button id="leave">Exit</button>
+</div>
+<div id="turn" hidden><div style="font-size:3rem">📱↻</div><div>Turn the phone sideways and put it in the viewer.</div><button id="turnExit">Back to setup</button></div>
+<video id="vid" playsinline muted></video>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const D = Math.PI / 180;
+  const Q = new URLSearchParams(location.search);
+  const TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const STEREO = Q.has('stereo') ? Q.get('stereo') !== '0' : TOUCH;
+  const ROUND_S = +Q.get('t') || 60;
+  const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
+  const say = (t) => ($('status').textContent = t || '');
+
+  // ---------- setup screen: past rounds ----------
+  function drawRounds() {
+    const rows = store.get('fruitVRRounds', []);
+    const t = $('rounds');
+    if (!rows.length) {
+      t.innerHTML = '<tr><td class="muted" style="text-align:left">No rounds yet.</td></tr>';
+    } else {
+      t.innerHTML =
+        '<tr><th>When</th><th>Blade</th><th>Sliced</th><th>Swipes that cut</th><th>Top speed</th><th>Hand lost</th><th>Off-centre</th></tr>' +
+        rows.slice(-8).reverse().map((r) =>
+          `<tr><td>${new Date(r.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td>${r.mode === 'hand' ? 'Hand' : 'Gaze'}</td><td>${r.sliced}/${r.thrown}</td><td>${r.swipes ? Math.round(r.acc * 100) + '%' : '–'}</td><td>${Math.round(r.peakV)}°/s</td><td>${r.mode === 'hand' && r.hand ? Math.round(r.hand.lostPct * 100) + '%' : '–'}</td><td>${r.aim && r.aim.n ? r.aim.rms.toFixed(1) + '°' : '–'}</td></tr>`).join('');
+    }
+    const b = store.get('fruitVRBias', { x: 0, y: 0, n: 0 });
+    $('biasNote').textContent = b.n ? `Aim correction in use for the hand blade: ${Math.abs(b.x).toFixed(1)}° ${b.x > 0 ? 'left' : 'right'} and ${Math.abs(b.y).toFixed(1)}° ${b.y > 0 ? 'down' : 'up'}, learned over ${b.n} round${b.n === 1 ? '' : 's'}.` : '';
+  }
+  drawRounds();
+  $('copy').onclick = async () => {
+    const txt = JSON.stringify({ rounds: store.get('fruitVRRounds', []), bias: store.get('fruitVRBias', null) }, null, 1);
+    try { await navigator.clipboard.writeText(txt); say('Results copied.'); } catch (e) { say('Copying is blocked here.'); }
+  };
+  let clearArmed = 0;
+  $('clear').onclick = () => {
+    if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); $('clear').textContent = 'Press again to clear'; return; }
+    store.set('fruitVRRounds', []); store.set('fruitVRBias', { x: 0, y: 0, n: 0 });
+    $('clear').textContent = 'Clear'; clearArmed = 0; drawRounds();
+  };
+
+  // ---------- scene ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.autoClear = false;
+  $('vr').insertBefore(renderer.domElement, $('vr').firstChild);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 200);
+  scene.add(camera);
+  const stereo = new THREE.StereoCamera();
+  stereo.aspect = 0.5;
+  stereo.eyeSep = 0.064;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.0));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+  sun.position.set(1, 3, 2);
+  scene.add(sun);
+
+  // the virtual room: a dark dome and a floor grid, hidden when the camera picture is shown
+  const room = new THREE.Group();
+  scene.add(room);
+  room.add(new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16), new THREE.MeshBasicMaterial({ color: 0x0b1424, side: THREE.BackSide })));
+  const grid = new THREE.GridHelper(40, 40, 0x35507a, 0x1c2c47);
+  grid.position.y = -1.6;
+  room.add(grid);
+
+  // the rear camera picture, far behind everything and fixed to the head
+  const vid = $('vid');
+  const vtex = new THREE.VideoTexture(vid);
+  const vplane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: vtex, depthTest: false, depthWrite: false }));
+  vplane.renderOrder = -10;
+  vplane.position.z = -30;
+  vplane.visible = false;
+  camera.add(vplane);
+  let crop = { sx: 1, sy: 1 }; // share of the picture shown after cropping it to cover the view
+
+  function textPlane(w, h, cw, ch) {
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const tex = new THREE.CanvasTexture(c);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+    m.renderOrder = 20;
+    m.userData = { c, x: c.getContext('2d'), tex, last: '' };
+    return m;
+  }
+  function drawText(m, lines, opt) {
+    const key = JSON.stringify(lines) + (opt && opt.ring != null ? opt.ring.toFixed(2) : '');
+    if (key === m.userData.last) return;
+    m.userData.last = key;
+    const { c, x, tex } = m.userData;
+    x.clearRect(0, 0, c.width, c.height);
+    if (!opt || opt.bg !== false) {
+      x.fillStyle = 'rgba(7,11,20,0.72)';
+      const r = 26;
+      x.beginPath(); x.moveTo(r, 0); x.arcTo(c.width, 0, c.width, c.height, r); x.arcTo(c.width, c.height, 0, c.height, r); x.arcTo(0, c.height, 0, 0, r); x.arcTo(0, 0, c.width, 0, r); x.fill();
+    }
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    const n = lines.length;
+    lines.forEach((ln, i) => {
+      const big = i === 0;
+      x.font = `${big ? 700 : 500} ${big ? Math.min(64, c.height / (n + 0.6)) : Math.min(40, c.height / (n + 1.6))}px system-ui, sans-serif`;
+      x.fillStyle = big ? '#ffd88a' : '#e9eef5';
+      x.fillText(ln, c.width / 2, (c.height * (i + 0.5 + (big ? 0 : 0.15))) / n);
+    });
+    if (opt && opt.ring != null) {
+      x.strokeStyle = '#ffd88a'; x.lineWidth = 8;
+      x.beginPath(); x.arc(c.width - 50, 50, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * opt.ring); x.stroke();
+    }
+    tex.needsUpdate = true;
+  }
+  const hud = textPlane(1.15, 0.2, 640, 110); // score and clock, fixed low in the view
+  hud.position.set(0, -0.62, -2);
+  camera.add(hud);
+  const note = textPlane(1.5, 0.34, 800, 180); // short prompts, fixed in the view
+  note.position.set(0, 0.5, -2.2);
+  note.visible = false;
+  camera.add(note);
+  const panel = textPlane(2.4, 1.3, 960, 520); // the end-of-round board, fixed in the room straight ahead
+  panel.position.set(0, 0.1, -2.6);
+  panel.visible = false;
+  scene.add(panel);
+  const reticle = new THREE.Mesh(new THREE.RingGeometry(0.018, 0.027, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true, opacity: 0.9 }));
+  reticle.position.z = -2;
+  reticle.renderOrder = 21;
+  camera.add(reticle);
+
+  // the blade: a glowing tip and a fading trail, drawn 2.4 m out along the blade's direction
+  const TRAIL = 12, BR = 2.4;
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL * 3), 3));
+  trailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL * 3), 3));
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true }));
+  trail.renderOrder = 19; trail.frustumCulled = false;
+  scene.add(trail);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffe9b0, depthTest: false }));
+  tip.renderOrder = 19;
+  scene.add(tip);
+  const trailPts = [];
+
+  function resize() {
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    const eyeAsp = (STEREO ? w / 2 : w) / h;
+    const ph = 2 * 30 * Math.tan((camera.fov * D) / 2), pw = ph * eyeAsp;
+    vplane.scale.set(pw, ph, 1);
+    const va = vid.videoWidth && vid.videoHeight ? vid.videoWidth / vid.videoHeight : 16 / 9;
+    crop = va > eyeAsp ? { sx: eyeAsp / va, sy: 1 } : { sx: 1, sy: va / eyeAsp };
+    vtex.repeat.set(crop.sx, crop.sy);
+    vtex.offset.set((1 - crop.sx) / 2, (1 - crop.sy) / 2);
+    S.eyeAsp = eyeAsp;
+    const portrait = TOUCH && h > w;
+    $('turn').hidden = !(S.on && portrait);
+  }
+
+  // ---------- head tracking ----------
+  const devQ = new THREE.Quaternion(), yawQ = new THREE.Quaternion();
+  const q1 = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2), zee = new THREE.Vector3(0, 0, 1), eul = new THREE.Euler(), q0 = new THREE.Quaternion();
+  let haveMotion = false, drag = { yaw: 0, pitch: 0 }, recentre = true;
+  function onOrient(e) {
+    if (e.alpha == null) return;
+    haveMotion = true;
+    const o = ((screen.orientation && screen.orientation.angle) != null ? screen.orientation.angle : window.orientation || 0) * D;
+    eul.set(e.beta * D, e.alpha * D, -e.gamma * D, 'YXZ');
+    devQ.setFromEuler(eul).multiply(q1).multiply(q0.setFromAxisAngle(zee, -o));
+  }
+  const fwd = new THREE.Vector3(), upY = new THREE.Vector3(0, 1, 0);
+  function applyHead() {
+    if (haveMotion) {
+      if (recentre) {
+        fwd.set(0, 0, -1).applyQuaternion(devQ);
+        yawQ.setFromAxisAngle(upY, -Math.atan2(-fwd.x, -fwd.z));
+        recentre = false;
+      }
+      camera.quaternion.copy(yawQ).multiply(devQ);
+    } else {
+      eul.set(drag.pitch, drag.yaw, 0, 'YXZ');
+      camera.quaternion.setFromEuler(eul);
+    }
+    camera.updateMatrixWorld(true);
+  }
+  let pd = null;
+  renderer.domElement.addEventListener('pointerdown', (e) => { pd = [e.clientX, e.clientY, false]; });
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!pd || haveMotion) return;
+    const dx = e.clientX - pd[0], dy = e.clientY - pd[1];
+    if (Math.abs(dx) + Math.abs(dy) > 4) pd[2] = true;
+    drag.yaw -= dx * 0.004; drag.pitch = Math.max(-1.2, Math.min(1.2, drag.pitch - dy * 0.004));
+    pd[0] = e.clientX; pd[1] = e.clientY;
+  });
+  renderer.domElement.addEventListener('pointerup', () => {
+    if (pd && !pd[2] && S.phase === 'end') startRound(); // the viewer's button is a tap on the screen
+    pd = null;
+  });
+
+  // ---------- hand tracking (rear camera) ----------
+  let landmarker = null, lastVT = -1, detN = 0, detMs = 0, skip = false;
+  const handRaw = { ok: false, u: 0, v: 0, t: 0, label: '' };
+  async function startCamera() {
+    const st = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+    vid.srcObject = st;
+    await vid.play();
+    return st;
+  }
+  async function loadHands() {
+    const { FilesetResolver, HandLandmarker } = await import(MP + '/vision_bundle.mjs');
+    const fs = await FilesetResolver.forVisionTasks(MP + '/wasm');
+    landmarker = await HandLandmarker.createFromOptions(fs, {
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
+      runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
+    });
+  }
+  function trackHand(now) {
+    if (!landmarker || vid.readyState < 2 || vid.currentTime === lastVT) return;
+    if (skip) { skip = false; return; } // a slow phone looks for the hand on every other picture
+    lastVT = vid.currentTime;
+    const t0 = performance.now();
+    let res = null;
+    try { res = landmarker.detectForVideo(vid, now); } catch (e) { return; }
+    const ms = performance.now() - t0;
+    detMs += ms; detN++;
+    skip = ms > 28;
+    const lm = res && res.landmarks && res.landmarks[0];
+    if (lm) {
+      handRaw.ok = true; handRaw.u = lm[8].x; handRaw.v = lm[8].y; handRaw.t = now;
+      handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
+    } else handRaw.ok = false;
+    if (S.phase === 'play') { if (lm) S.m.handFrames++; else S.m.lostFrames++; }
+  }
+
+  // ---------- game state ----------
+  const S = { on: false, phase: 'idle', mode: 'head', showRoom: false, eyeAsp: 1, fruits: [], bits: [], m: null, t0: 0, next: 0, score: 0, dwell: 0, count: 0, stream: null };
+  const blade = { ok: false, dir: new THREE.Vector3(0, 0, -1), prev: new THREE.Vector3(0, 0, -1), speed: 0, ax: 0, ay: 0, lastSeen: 0 };
+  let bias = store.get('fruitVRBias', { x: 0, y: 0, n: 0 });
+  const FRUIT = [
+    { r: 0.2, skin: 0x2f8f3a, flesh: 0xf0425a }, // watermelon
+    { r: 0.14, skin: 0xff9a1f, flesh: 0xffc266 }, // orange
+    { r: 0.13, skin: 0xd92b2b, flesh: 0xfff2d6 }, // apple
+    { r: 0.12, skin: 0xf2df3a, flesh: 0xfff7b0 }, // lemon
+    { r: 0.11, skin: 0x7a3fa6, flesh: 0xf3c0e0 }, // plum
+    { r: 0.15, skin: 0x8fbf3a, flesh: 0xe6f5a8 }, // pear
+  ];
+  const sphereGeo = new THREE.SphereGeometry(1, 20, 14), halfGeo = new THREE.SphereGeometry(1, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2), capGeo = new THREE.CircleGeometry(1, 20);
+  capGeo.rotateX(Math.PI / 2);
+  const mats = FRUIT.map((f) => ({ skin: new THREE.MeshLambertMaterial({ color: f.skin }), flesh: new THREE.MeshLambertMaterial({ color: f.flesh, side: THREE.DoubleSide }) }));
+  const G = 3.2;
+  function spawn(now) {
+    const k = Math.floor(Math.random() * FRUIT.length), f = FRUIT[k];
+    const az = (Math.random() * 2 - 1) * 38 * D, dist = 2.3 + Math.random() * 1.0, apex = 1.5 + Math.random() * 1.3;
+    const m = new THREE.Mesh(sphereGeo, mats[k].skin);
+    m.scale.setScalar(f.r);
+    m.position.set(Math.sin(az) * dist, -1.8, -Math.cos(az) * dist);
+    scene.add(m);
+    S.fruits.push({ m, k, r: f.r, v: new THREE.Vector3((Math.random() - 0.5) * 0.5, Math.sqrt(2 * G * apex), 0), spin: new THREE.Vector3(Math.random() * 3, Math.random() * 3, Math.random() * 3), minAng: 99, dx: 0, dy: 0, swept: false });
+    S.m.thrown++;
+  }
+  const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3(), tmpD = new THREE.Vector3(), b0 = [0, 0], b1 = [0, 0], f2 = [0, 0], invCam = new THREE.Quaternion();
+  function slice(fr, sweep) {
+    scene.remove(fr.m);
+    tmpA.copy(fr.m.position).normalize();
+    const n = tmpB.crossVectors(tmpA, sweep).normalize();
+    if (!isFinite(n.x) || n.lengthSq() < 0.5) n.set(0, 1, 0);
+    [1, -1].forEach((sg) => {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(halfGeo, mats[fr.k].skin), new THREE.Mesh(capGeo, mats[fr.k].flesh));
+      g.scale.setScalar(fr.r);
+      g.position.copy(fr.m.position);
+      g.quaternion.setFromUnitVectors(upY, tmpC.copy(n).multiplyScalar(sg));
+      scene.add(g);
+      S.bits.push({ g, v: fr.v.clone().addScaledVector(n, sg * 1.3), spin: sg * 4, life: 1.3 });
+    });
+    S.score++; S.m.sliced++; S.m.cutThisSwipe++;
+    beep(520 + Math.random() * 260, 0.09, 'triangle');
+  }
+  // direction in the camera's frame for a point in the camera picture (0..1 each way), allowing for the cover crop
+  function videoDir(u, v, out) {
+    const hh = Math.tan((camera.fov * D) / 2), hw = hh * S.eyeAsp;
+    const x = ((u - 0.5) / crop.sx) * 2 * hw, y = (-(v - 0.5) / crop.sy) * 2 * hh;
+    return out.set(x, y, -1).normalize();
+  }
+  function updateBlade(now, dt) {
+    blade.prev.copy(blade.dir);
+    const was = blade.ok;
+    if (S.mode === 'hand') {
+      if (handRaw.ok) {
+        videoDir(handRaw.u, handRaw.v, tmpA);
+        // the learned aim correction, in degrees across and up
+        const ax = Math.atan2(tmpA.x, -tmpA.z) / D - bias.x, ay = Math.atan2(tmpA.y, -tmpA.z) / D - bias.y;
+        tmpA.set(Math.tan(ax * D), Math.tan(ay * D), -1).normalize().applyQuaternion(camera.quaternion);
+        // light smoothing that eases off as the hand speeds up, so swipes stay sharp and a still hand stays steady
+        const a = was ? Math.min(1, 0.35 + blade.speed / 180) : 1;
+        blade.dir.lerp(tmpA, a).normalize();
+        blade.ok = true; blade.lastSeen = now;
+      } else if (now - blade.lastSeen > 350) blade.ok = false;
+    } else {
+      blade.dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      blade.ok = true;
+    }
+    if (!was || !blade.ok) blade.prev.copy(blade.dir);
+    const inst = dt > 0 ? (blade.prev.angleTo(blade.dir) / D) / dt : 0;
+    blade.speed += (Math.min(inst, 2500) - blade.speed) * 0.5;
+  }
+  const THR = () => (S.mode === 'hand' ? 40 : 12); // degrees a second the blade must be moving to cut
+  function play(now, dt) {
+    const m = S.m, left = ROUND_S - (now - S.t0) / 1000;
+    if (left <= 0) return endRound();
+    if (now >= S.next) {
+      const p = 1 - left / ROUND_S;
+      spawn(now);
+      if (Math.random() < 0.15 + 0.2 * p) spawn(now);
+      S.next = now + 1150 - 500 * p + Math.random() * 250;
+    }
+    // swipes: stretches where the blade is moving fast enough to cut
+    const fast = blade.ok && blade.speed >= THR();
+    if (fast) {
+      if (!m.inSwipe) { m.inSwipe = true; m.cutThisSwipe = 0; m.swipeT = now; }
+      if (blade.speed > m.peakV) m.peakV = blade.speed;
+      m.vSum += blade.speed; m.vN++;
+    } else if (m.inSwipe) {
+      m.inSwipe = false;
+      if (now - m.swipeT >= 60) { m.swipes++; if (m.cutThisSwipe) m.cuts++; }
+    }
+    invCam.copy(camera.quaternion).invert();
+    const sweep = tmpC.copy(blade.dir).sub(blade.prev);
+    // the blade's path this frame as across/up angles in the view (degrees), and the direction it is moving
+    const ang2 = (v, o) => { tmpD.copy(v).applyQuaternion(invCam); o[0] = Math.atan2(tmpD.x, -tmpD.z) / D; o[1] = Math.atan2(tmpD.y, -tmpD.z) / D; return o; };
+    ang2(blade.prev, b0); ang2(blade.dir, b1);
+    const sl = Math.hypot(b1[0] - b0[0], b1[1] - b0[1]) || 1, sx = (b1[0] - b0[0]) / sl, sy = (b1[1] - b0[1]) / sl;
+    for (let i = S.fruits.length - 1; i >= 0; i--) {
+      const fr = S.fruits[i];
+      fr.v.y -= G * dt;
+      fr.m.position.addScaledVector(fr.v, dt);
+      fr.m.rotation.x += fr.spin.x * dt; fr.m.rotation.y += fr.spin.y * dt;
+      const d = fr.m.position.length(), angR = Math.atan(fr.r / d) / D + 1.5;
+      let hit = false;
+      if (blade.ok) {
+        const fd = tmpA.copy(fr.m.position).divideScalar(d);
+        for (let s = 1; s <= 4 && !hit; s++) {
+          const bd = tmpB.copy(blade.prev).lerp(blade.dir, s / 4).normalize(), ang = bd.angleTo(fd) / D;
+          if (fast && ang < fr.minAng) {
+            // closest pass so far: how far to the side of the fruit's centre the blade's line of travel runs. A swipe only
+            // shows the error across its own direction, so that sideways part is what the aim correction learns from.
+            fr.minAng = ang;
+            ang2(fd, f2);
+            const rx = b0[0] + ((b1[0] - b0[0]) * s) / 4 - f2[0], ry = b0[1] + ((b1[1] - b0[1]) * s) / 4 - f2[1], al = rx * sx + ry * sy;
+            fr.dx = rx - al * sx; fr.dy = ry - al * sy;
+            fr.angR = angR;
+          }
+          if (fast && ang < angR) hit = true;
+        }
+      }
+      const done = hit || fr.m.position.y < -2.2;
+      if (done) {
+        const pl = Math.hypot(fr.dx, fr.dy);
+        if (fr.minAng < 2.5 * (fr.angR || angR) && pl > 1e-6) {
+          const nx = fr.dx / pl, ny = fr.dy / pl;
+          m.aimN++; m.a11 += nx * nx; m.a12 += nx * ny; m.a22 += ny * ny; m.aimDx += fr.dx; m.aimDy += fr.dy; m.aimSq += pl * pl;
+        }
+        if (!hit && fr.minAng < 90) { m.missN++; m.missSum += fr.minAng; }
+        if (hit) slice(fr, sweep.lengthSq() > 1e-10 ? sweep : tmpA.set(1, 0, 0));
+        else scene.remove(fr.m);
+        S.fruits.splice(i, 1);
+      }
+    }
+    const s = Math.ceil(left);
+    drawText(hud, [`🍉 ${S.score}     ⏱ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`]);
+    if (S.mode === 'hand') {
+      note.visible = !blade.ok;
+      if (!blade.ok) drawText(note, ['✋ Hold a hand out in front']);
+    }
+  }
+  function moveBits(dt) {
+    for (let i = S.bits.length - 1; i >= 0; i--) {
+      const b = S.bits[i];
+      b.v.y -= G * dt;
+      b.g.position.addScaledVector(b.v, dt);
+      b.g.rotation.z += b.spin * dt;
+      if ((b.life -= dt) <= 0) { scene.remove(b.g); S.bits.splice(i, 1); }
+    }
+  }
+  function startRound() {
+    S.fruits.forEach((f) => scene.remove(f.m)); S.fruits = [];
+    S.m = { thrown: 0, sliced: 0, swipes: 0, cuts: 0, inSwipe: false, cutThisSwipe: 0, swipeT: 0, peakV: 0, vSum: 0, vN: 0, handFrames: 0, lostFrames: 0, aimN: 0, aimDx: 0, aimDy: 0, aimSq: 0, a11: 0, a12: 0, a22: 0, missN: 0, missSum: 0 };
+    S.score = 0; S.dwell = 0; detN = 0; detMs = 0;
+    panel.visible = false; hud.visible = true;
+    recentre = true;
+    S.phase = 'count'; S.count = performance.now();
+  }
+  function endRound() {
+    const m = S.m;
+    S.fruits.forEach((f) => scene.remove(f.m)); S.fruits = [];
+    if (m.inSwipe) { m.swipes++; if (m.cutThisSwipe) m.cuts++; }
+    const dur = ROUND_S, frames = m.handFrames + m.lostFrames;
+    // the steady aim error that best explains the sideways misses of every swipe (least squares; a direction no swipe
+    // crossed stays at zero rather than being guessed)
+    const lam = 0.15 * m.aimN + 1e-9, qa = m.a11 + lam, qb = m.a12, qc = m.a22 + lam, det = qa * qc - qb * qb;
+    const ex = m.aimN ? (qc * m.aimDx - qb * m.aimDy) / det : 0, ey = m.aimN ? (qa * m.aimDy - qb * m.aimDx) / det : 0;
+    const row = {
+      v: 1, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, dur, thrown: m.thrown, sliced: m.sliced, swipes: m.swipes, cuts: m.cuts,
+      acc: m.swipes ? m.cuts / m.swipes : 0, peakV: m.peakV, meanV: m.vN ? m.vSum / m.vN : 0,
+      hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, fps: frames / dur, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
+      aim: { n: m.aimN, dx: ex, dy: ey, rms: m.aimN ? Math.sqrt(m.aimSq / m.aimN) : 0, missNear: m.missN ? m.missSum / m.missN : null },
+      bias: { x: bias.x, y: bias.y }, screen: [innerWidth, innerHeight],
+    };
+    const rows = store.get('fruitVRRounds', []);
+    rows.push(row);
+    store.set('fruitVRRounds', rows.slice(-200));
+    // learn the aim: if the hand blade keeps passing to one side of the fruit, shift it half-way back for next time
+    let learned = '';
+    if (S.mode === 'hand' && m.aimN >= 12 && Math.hypot(ex, ey) >= 0.7) {
+      const cl = (v) => Math.max(-6, Math.min(6, v));
+      bias = { x: cl(bias.x + 0.5 * row.aim.dx), y: cl(bias.y + 0.5 * row.aim.dy), n: (bias.n || 0) + 1 };
+      store.set('fruitVRBias', bias);
+      learned = `Aim adjusted ${Math.abs(row.aim.dx * 0.5).toFixed(1)}° ${row.aim.dx > 0 ? 'left' : 'right'}, ${Math.abs(row.aim.dy * 0.5).toFixed(1)}° ${row.aim.dy > 0 ? 'down' : 'up'}`;
+    }
+    S.endLines = [`Sliced ${m.sliced} of ${m.thrown}`, `${m.swipes ? Math.round(row.acc * 100) : 0}% of swipes cut · top speed ${Math.round(m.peakV)}°/s`].concat(
+      S.mode === 'hand' ? [`Hand lost ${Math.round(row.hand.lostPct * 100)}% of the time · ${Math.round(row.hand.fps)} looks a second`] : [], learned ? [learned] : [], ['Look here, or press the button, to play again']);
+    S.phase = 'end'; S.dwell = 0;
+    hud.visible = false; note.visible = false;
+    panel.visible = true;
+    beep(660, 0.12, 'sine'); setTimeout(() => beep(880, 0.2, 'sine'), 130);
+    drawRounds();
+  }
+
+  // ---------- sound ----------
+  let ac = null;
+  function beep(f, dur, type) {
+    if (!ac) return;
+    try {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f, ac.currentTime); o.frequency.exponentialRampToValueAtTime(f * 0.6, ac.currentTime + dur);
+      g.gain.setValueAtTime(0.18, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+      o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + dur);
+    } catch (e) {}
+  }
+
+  // ---------- frame loop ----------
+  let last = 0, wake = null;
+  function frame(now) {
+    if (!S.on) return;
+    requestAnimationFrame(frame);
+    const real = Math.min(0.3, (now - last) / 1000 || 0.016), dt = Math.min(0.05, real);
+    last = now;
+    applyHead();
+    if (S.mode === 'hand') trackHand(now);
+    updateBlade(now, dt);
+    if (S.phase === 'count') {
+      const left = 3 - (now - S.count) / 1000;
+      note.visible = true;
+      drawText(note, [left > 0 ? String(Math.ceil(left)) : 'Go!']);
+      drawText(hud, ['🍉 0']);
+      if (left <= -0.4) { note.visible = false; S.phase = 'play'; S.t0 = now; S.next = now + 300; }
+    } else if (S.phase === 'play') play(now, dt);
+    else if (S.phase === 'end') {
+      fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      const on = fwd.angleTo(tmpA.copy(panel.position).normalize()) / D < 14;
+      S.dwell = on ? S.dwell + real : 0;
+      drawText(panel, S.endLines, { ring: Math.min(1, S.dwell / 2) });
+      note.visible = fwd.angleTo(tmpA) / D > 32; // the board is out of sight
+      if (note.visible) drawText(note, ['Round over', 'Look straight ahead']);
+      if (S.dwell >= 2) { note.visible = false; startRound(); }
+    }
+    moveBits(dt);
+    // blade trail
+    reticle.visible = S.mode === 'head';
+    tip.visible = trail.visible = blade.ok && (S.mode === 'hand' || S.phase === 'play');
+    if (blade.ok) {
+      trailPts.unshift(blade.dir.clone().multiplyScalar(BR));
+      if (trailPts.length > TRAIL) trailPts.pop();
+      const p = trailGeo.attributes.position.array, c = trailGeo.attributes.color.array, hot = blade.speed >= THR();
+      for (let i = 0; i < TRAIL; i++) {
+        const q = trailPts[Math.min(i, trailPts.length - 1)], f = (1 - i / TRAIL) * (hot ? 1 : 0.25);
+        p[i * 3] = q.x; p[i * 3 + 1] = q.y; p[i * 3 + 2] = q.z;
+        c[i * 3] = f; c[i * 3 + 1] = f * 0.9; c[i * 3 + 2] = f * 0.6;
+      }
+      trailGeo.attributes.position.needsUpdate = trailGeo.attributes.color.needsUpdate = true;
+      tip.position.copy(trailPts[0]);
+    } else trailPts.length = 0;
+
+    const w = innerWidth, h = innerHeight; // the renderer takes these in screen pixels and applies the pixel ratio itself
+    renderer.setScissorTest(false);
+    renderer.clear();
+    if (STEREO) {
+      stereo.update(camera);
+      renderer.setScissorTest(true);
+      renderer.setScissor(0, 0, w / 2, h); renderer.setViewport(0, 0, w / 2, h);
+      renderer.render(scene, stereo.cameraL);
+      renderer.setScissor(w / 2, 0, w / 2, h); renderer.setViewport(w / 2, 0, w / 2, h);
+      renderer.render(scene, stereo.cameraR);
+    } else {
+      renderer.setViewport(0, 0, w, h);
+      renderer.render(scene, camera);
+    }
+  }
+
+  // ---------- start / stop ----------
+  async function start() {
+    const want = document.querySelector('input[name=blade]:checked').value;
+    S.showRoom = $('room').checked;
+    say('Starting…');
+    try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {}
+    // motion: iPhone asks once, and only from a button press
+    try {
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== 'granted') say('Motion was not allowed, so drag the picture to look around.');
+      }
+    } catch (e) {}
+    window.addEventListener('deviceorientation', onOrient);
+    S.mode = want;
+    const needCam = want === 'hand' || S.showRoom;
+    if (needCam && !S.stream) {
+      try { S.stream = await startCamera(); } catch (e) {
+        S.stream = null; S.showRoom = false;
+        if (want === 'hand') { S.mode = 'head'; say('The camera could not be used, so the blade follows your gaze.'); }
+      }
+    }
+    if (S.mode === 'hand' && !landmarker) {
+      say('Loading the hand tracker…');
+      try { await loadHands(); } catch (e) { S.mode = 'head'; say('The hand tracker could not be loaded, so the blade follows your gaze.'); }
+    }
+    vplane.visible = !!(S.showRoom && S.stream);
+    room.visible = !vplane.visible;
+    $('setup').hidden = true; $('vr').hidden = false; $('mid').hidden = !STEREO;
+    S.on = true;
+    resize();
+    try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+    startRound();
+    last = performance.now();
+    requestAnimationFrame(frame);
+  }
+  function stop() {
+    S.on = false; S.phase = 'idle';
+    $('vr').hidden = true; $('turn').hidden = true; $('setup').hidden = false;
+    if (S.stream) { S.stream.getTracks().forEach((t) => t.stop()); S.stream = null; vid.srcObject = null; }
+    try { if (wake) wake.release(); } catch (e) {}
+    wake = null;
+    if ($('status').textContent === 'Starting…' || $('status').textContent === 'Loading the hand tracker…') say('');
+    drawRounds();
+  }
+  $('go').onclick = start;
+  $('leave').onclick = stop;
+  $('turnExit').onclick = stop;
+  addEventListener('resize', resize);
+  vid.addEventListener('loadedmetadata', resize);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
+
+  // for checks: read the state, point the head, or place the hand in the camera picture
+  window.__fruitVR = { S, blade, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v) { if (u == null) handRaw.ok = false; else { handRaw.ok = true; handRaw.u = u; handRaw.v = v; } }, setMode(m) { S.mode = m; }, crop: () => crop };
+})();
+</script>
+</body>
+</html>
