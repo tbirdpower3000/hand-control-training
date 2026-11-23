@@ -27,6 +27,7 @@
   th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
   #vr { position: fixed; inset: 0; background: #000; touch-action: none; }
+  #view { position: absolute; left: 50%; top: 50%; overflow: hidden; }
   #vr canvas { display: block; width: 100%; height: 100%; }
   #mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.35); }
   #leave { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); font-size: 0.75rem; padding: 4px 10px; opacity: 0.55; }
@@ -44,6 +45,7 @@
     <label class="opt"><input type="radio" name="blade" value="hand" checked /><span><b>My hand</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer and swipe through the fruit with your index finger. The viewer must leave the phone's rear camera uncovered.</span></span></label>
     <label class="opt"><input type="radio" name="blade" value="head" /><span><b>My gaze</b><br /><span class="muted">The blade sits where you look; sweep your head across the fruit. No camera needed.</span></span></label>
     <label class="opt"><input type="checkbox" id="room" checked /><span><b>See my room</b><br /><span class="muted">Shows the rear camera behind the fruit instead of the virtual room.</span></span></label>
+    <label class="opt"><input type="checkbox" id="wide" checked /><span><b>Widest camera (0.5×)</b><br /><span class="muted">Uses the phone's ultra-wide rear camera when it has one, so more of the room and your hands are in view. Turn this off if your hand is lost too often: it looks smaller to the tracker through the wide lens.</span></span></label>
     <button class="primary" id="go">Start</button>
     <p class="muted" id="status" role="status"></p>
   </div>
@@ -59,10 +61,12 @@
 </main>
 
 <div id="vr" hidden>
-  <div id="mid" hidden></div>
-  <button id="leave">Exit</button>
+  <div id="view">
+    <div id="mid" hidden></div>
+    <button id="leave">Exit</button>
+  </div>
 </div>
-<div id="turn" hidden><div style="font-size:3rem">📱↻</div><div>Turn the phone sideways and put it in the viewer.</div><button id="turnExit">Back to setup</button></div>
+<div id="turn" hidden><div style="font-size:3rem">📱↻</div><div>Turn the phone sideways and put it in the viewer.</div><div class="muted">If this message stays, allow motion when asked, or turn off Portrait Orientation Lock.</div><button id="turnExit">Back to setup</button></div>
 <video id="vid" playsinline muted></video>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -113,7 +117,7 @@
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
   renderer.autoClear = false;
-  $('vr').insertBefore(renderer.domElement, $('vr').firstChild);
+  $('view').insertBefore(renderer.domElement, $('view').firstChild);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 200);
   scene.add(camera);
@@ -141,7 +145,7 @@
   vplane.position.z = -30;
   vplane.visible = false;
   camera.add(vplane);
-  let crop = { sx: 1, sy: 1 }; // share of the picture shown after cropping it to cover the view
+  const pic = { lx: 1, ly: 1, rz: 0 }; // the picture's width and height 30 m out, and its quarter turn when the phone's rotation is locked
 
   function textPlane(w, h, cw, ch) {
     const c = document.createElement('canvas');
@@ -206,35 +210,52 @@
   scene.add(tip);
   const trailPts = [];
 
+  // With the phone's rotation lock on, the page stays upright when the phone is turned sideways. The motion sensors still
+  // show which way it was turned, so the whole view is drawn sideways to match (rot is that quarter turn, in degrees).
+  let rot = 0;
   function resize() {
-    const w = innerWidth, h = innerHeight;
+    const pw = innerWidth, ph = innerHeight, pageLand = !TOUCH || pw > ph;
+    if (pageLand) rot = 0;
+    const turned = !pageLand && rot !== 0, w = turned ? ph : pw, h = turned ? pw : ph;
+    S.w = w; S.h = h; S.ready = pageLand || turned;
+    const st = $('view').style;
+    st.width = w + 'px'; st.height = h + 'px';
+    st.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     const eyeAsp = (STEREO ? w / 2 : w) / h;
-    const ph = 2 * 30 * Math.tan((camera.fov * D) / 2), pw = ph * eyeAsp;
-    vplane.scale.set(pw, ph, 1);
+    // the camera picture is scaled to cover each eye's view (the overflow falls outside the view). With rotation lock on,
+    // the camera's picture stays upright to the phone, so it is turned a quarter to stay upright to the room.
+    const viewH = 2 * 30 * Math.tan((camera.fov * D) / 2), viewW = viewH * eyeAsp;
     const va = vid.videoWidth && vid.videoHeight ? vid.videoWidth / vid.videoHeight : 16 / 9;
-    crop = va > eyeAsp ? { sx: eyeAsp / va, sy: 1 } : { sx: 1, sy: va / eyeAsp };
-    vtex.repeat.set(crop.sx, crop.sy);
-    vtex.offset.set((1 - crop.sx) / 2, (1 - crop.sy) / 2);
+    const k = turned ? Math.max(viewW, viewH / va) : Math.max(viewH, viewW / va);
+    pic.lx = k * va; pic.ly = k; pic.rz = turned ? rot * D : 0;
+    vplane.scale.set(pic.lx, pic.ly, 1);
+    vplane.rotation.z = pic.rz;
     S.eyeAsp = eyeAsp;
-    const portrait = TOUCH && h > w;
-    $('turn').hidden = !(S.on && portrait);
+    $('turn').hidden = !(S.on && !S.ready);
   }
 
   // ---------- head tracking ----------
   const devQ = new THREE.Quaternion(), yawQ = new THREE.Quaternion();
   const q1 = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2), zee = new THREE.Vector3(0, 0, 1), eul = new THREE.Euler(), q0 = new THREE.Quaternion();
   let haveMotion = false, drag = { yaw: 0, pitch: 0 }, recentre = true;
+  const fwd = new THREE.Vector3(), upY = new THREE.Vector3(0, 1, 0);
   function onOrient(e) {
     if (e.alpha == null) return;
     haveMotion = true;
-    const o = ((screen.orientation && screen.orientation.angle) != null ? screen.orientation.angle : window.orientation || 0) * D;
     eul.set(e.beta * D, e.alpha * D, -e.gamma * D, 'YXZ');
-    devQ.setFromEuler(eul).multiply(q1).multiply(q0.setFromAxisAngle(zee, -o));
+    devQ.setFromEuler(eul).multiply(q1);
+    let o = (screen.orientation && screen.orientation.angle) != null ? screen.orientation.angle : window.orientation || 0;
+    if (TOUCH && innerHeight > innerWidth) {
+      // the page is upright: is the phone itself on its side? Its right-hand edge points up or down when it is.
+      const ry = fwd.set(1, 0, 0).applyQuaternion(devQ).y, nr = ry > 0.6 ? 90 : ry < -0.6 ? -90 : Math.abs(ry) < 0.3 ? 0 : rot;
+      if (nr !== rot) { rot = nr; resize(); }
+      o = rot;
+    }
+    devQ.multiply(q0.setFromAxisAngle(zee, -o * D));
   }
-  const fwd = new THREE.Vector3(), upY = new THREE.Vector3(0, 1, 0);
   function applyHead() {
     if (haveMotion) {
       if (recentre) {
@@ -266,8 +287,33 @@
   // ---------- hand tracking (rear camera) ----------
   let landmarker = null, lastVT = -1, detN = 0, detMs = 0, skip = false;
   const handRaw = { ok: false, u: 0, v: 0, t: 0, label: '' };
-  async function startCamera() {
-    const st = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+  // One rear camera is opened. With "Widest camera" on, the ultra-wide (0.5x) one is preferred: the phone lists its rear
+  // cameras by name once the camera is allowed, and where there is no separate ultra-wide the lens is zoomed out as far
+  // as it goes instead.
+  async function startCamera(wide) {
+    const size = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    let st = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ facingMode: { ideal: 'environment' } }, size) });
+    let track = st.getVideoTracks()[0];
+    if (wide) {
+      try {
+        const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+        const uw = cams.find((d) => /ultra/i.test(d.label) && !/front|selfie/i.test(d.label));
+        const cur = track.getSettings ? track.getSettings().deviceId : null;
+        if (uw && uw.deviceId && uw.deviceId !== cur) {
+          st.getTracks().forEach((t) => t.stop());
+          try {
+            st = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ deviceId: { exact: uw.deviceId } }, size) });
+          } catch (e) {
+            st = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ facingMode: { ideal: 'environment' } }, size) });
+          }
+          track = st.getVideoTracks()[0];
+        } else if (!uw && track.getCapabilities) {
+          const z = track.getCapabilities().zoom;
+          if (z && z.min != null && track.getSettings().zoom > z.min) await track.applyConstraints({ advanced: [{ zoom: z.min }] });
+        }
+      } catch (e) {}
+    }
+    S.cam = track.label || '';
     vid.srcObject = st;
     await vid.play();
     return st;
@@ -299,7 +345,7 @@
   }
 
   // ---------- game state ----------
-  const S = { on: false, phase: 'idle', mode: 'head', showRoom: false, eyeAsp: 1, fruits: [], bits: [], m: null, t0: 0, next: 0, score: 0, dwell: 0, count: 0, stream: null };
+  const S = { on: false, phase: 'idle', mode: 'head', showRoom: false, eyeAsp: 1, w: 1, h: 1, ready: true, fruits: [], bits: [], m: null, t0: 0, next: 0, score: 0, dwell: 0, count: 0, stream: null, cam: '' };
   const blade = { ok: false, dir: new THREE.Vector3(0, 0, -1), prev: new THREE.Vector3(0, 0, -1), speed: 0, ax: 0, ay: 0, lastSeen: 0 };
   let bias = store.get('fruitVRBias', { x: 0, y: 0, n: 0 });
   const FRUIT = [
@@ -342,11 +388,10 @@
     S.score++; S.m.sliced++; S.m.cutThisSwipe++;
     beep(520 + Math.random() * 260, 0.09, 'triangle');
   }
-  // direction in the camera's frame for a point in the camera picture (0..1 each way), allowing for the cover crop
+  // direction in the camera's frame for a point in the camera picture (0..1 across and down)
   function videoDir(u, v, out) {
-    const hh = Math.tan((camera.fov * D) / 2), hw = hh * S.eyeAsp;
-    const x = ((u - 0.5) / crop.sx) * 2 * hw, y = (-(v - 0.5) / crop.sy) * 2 * hh;
-    return out.set(x, y, -1).normalize();
+    const lx = (u - 0.5) * pic.lx, ly = -(v - 0.5) * pic.ly, c = Math.cos(pic.rz), sn = Math.sin(pic.rz);
+    return out.set(lx * c - ly * sn, lx * sn + ly * c, -30).normalize();
   }
   function updateBlade(now, dt) {
     blade.prev.copy(blade.dir);
@@ -470,7 +515,7 @@
       acc: m.swipes ? m.cuts / m.swipes : 0, peakV: m.peakV, meanV: m.vN ? m.vSum / m.vN : 0,
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, fps: frames / dur, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
       aim: { n: m.aimN, dx: ex, dy: ey, rms: m.aimN ? Math.sqrt(m.aimSq / m.aimN) : 0, missNear: m.missN ? m.missSum / m.missN : null },
-      bias: { x: bias.x, y: bias.y }, screen: [innerWidth, innerHeight],
+      bias: { x: bias.x, y: bias.y }, screen: [innerWidth, innerHeight], cam: S.cam || '',
     };
     const rows = store.get('fruitVRRounds', []);
     rows.push(row);
@@ -509,12 +554,16 @@
   function frame(now) {
     if (!S.on) return;
     requestAnimationFrame(frame);
-    const real = Math.min(0.3, (now - last) / 1000 || 0.016), dt = Math.min(0.05, real);
+    const gap = now - last, real = Math.min(0.3, gap / 1000 || 0.016), dt = Math.min(0.05, real);
     last = now;
     applyHead();
     if (S.mode === 'hand') trackHand(now);
     updateBlade(now, dt);
-    if (S.phase === 'count') {
+    if (!S.ready) {
+      // waiting for the phone to be turned sideways: the countdown and the round clock stand still
+      if (S.phase === 'count') S.count = now;
+      else if (S.phase === 'play') { S.t0 += gap; S.next += gap; }
+    } else if (S.phase === 'count') {
       const left = 3 - (now - S.count) / 1000;
       note.visible = true;
       drawText(note, [left > 0 ? String(Math.ceil(left)) : 'Go!']);
@@ -547,7 +596,7 @@
       tip.position.copy(trailPts[0]);
     } else trailPts.length = 0;
 
-    const w = innerWidth, h = innerHeight; // the renderer takes these in screen pixels and applies the pixel ratio itself
+    const w = S.w, h = S.h; // the renderer takes these in screen pixels and applies the pixel ratio itself
     renderer.setScissorTest(false);
     renderer.clear();
     if (STEREO) {
@@ -580,7 +629,7 @@
     S.mode = want;
     const needCam = want === 'hand' || S.showRoom;
     if (needCam && !S.stream) {
-      try { S.stream = await startCamera(); } catch (e) {
+      try { S.stream = await startCamera($('wide').checked); } catch (e) {
         S.stream = null; S.showRoom = false;
         if (want === 'hand') { S.mode = 'head'; say('The camera could not be used, so the blade follows your gaze.'); }
       }
@@ -606,6 +655,7 @@
     try { if (wake) wake.release(); } catch (e) {}
     wake = null;
     if ($('status').textContent === 'Starting…' || $('status').textContent === 'Loading the hand tracker…') say('');
+    if (S.cam && !$('status').textContent) say('Camera used: ' + S.cam);
     drawRounds();
   }
   $('go').onclick = start;
@@ -616,7 +666,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, or place the hand in the camera picture
-  window.__fruitVR = { S, blade, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v) { if (u == null) handRaw.ok = false; else { handRaw.ok = true; handRaw.u = u; handRaw.v = v; } }, setMode(m) { S.mode = m; }, crop: () => crop };
+  window.__fruitVR = { S, blade, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v) { if (u == null) handRaw.ok = false; else { handRaw.ok = true; handRaw.u = u; handRaw.v = v; } }, setMode(m) { S.mode = m; }, pic, handDir(u, v) { const d = videoDir(u, v, new THREE.Vector3()); return [d.x, d.y, d.z]; } };
 })();
 </script>
 </body>
