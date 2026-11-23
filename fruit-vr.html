@@ -114,8 +114,22 @@
   };
 
   // ---------- scene ----------
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  // Edge smoothing is left to the screen's own density on a phone (it is costly there); the graphics chip is asked for its
+  // fast mode. The picture is drawn at up to twice the page's resolution and that is lowered while frames run slow.
+  const PR_MAX = Math.min(devicePixelRatio || 1, 2);
+  const renderer = new THREE.WebGLRenderer({ antialias: (devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(PR_MAX);
+  const perf = { pr: PR_MAX, ft: 16.7, hold: 0, upAfter: 0, n: 0, sum: 0 };
+  function pace(now, gap) {
+    if (!(gap > 0 && gap < 500)) return;
+    perf.ft += (gap - perf.ft) * 0.05;
+    if (S.phase === 'play') { perf.n++; perf.sum += gap; }
+    if (now < perf.hold) return;
+    let pr = perf.pr;
+    if (perf.ft > 21 && pr > 1) { pr = Math.max(1, pr - 0.25); perf.upAfter = now + 10000; }
+    else if (perf.ft < 17.5 && pr < PR_MAX && now > perf.upAfter) pr = Math.min(PR_MAX, pr + 0.25);
+    if (pr !== perf.pr) { perf.pr = pr; renderer.setPixelRatio(pr); perf.hold = now + 1500; perf.ft = 16.7; }
+  }
   renderer.autoClear = false;
   $('view').insertBefore(renderer.domElement, $('view').firstChild);
   const scene = new THREE.Scene();
@@ -286,7 +300,15 @@
 
   // ---------- hand tracking (rear camera) ----------
   let landmarker = null, lastVT = -1, detN = 0, detMs = 0, skip = false;
-  const handRaw = { ok: false, u: 0, v: 0, t: 0, label: '' };
+  const handRaw = { ok: false, u: 0, v: 0, vu: 0, vv: 0, t: 0, label: '' };
+  // the fingertip now: the last place it was found, carried forward at its speed for at most a twentieth of a second.
+  // The camera sees the hand less often than the screen redraws, so this keeps the blade moving every frame.
+  function handNow(now, o) {
+    const a = Math.min(0.05, Math.max(0, (now - handRaw.t) / 1000)), cl = (x) => Math.max(0, Math.min(1, x));
+    o[0] = cl(handRaw.u + handRaw.vu * a); o[1] = cl(handRaw.v + handRaw.vv * a);
+    return o;
+  }
+  const hn = [0, 0];
   // One rear camera is opened. With "Widest camera" on, the ultra-wide (0.5x) one is preferred: the phone lists its rear
   // cameras by name once the camera is allowed, and where there is no separate ultra-wide the lens is zoomed out as far
   // as it goes instead.
@@ -338,6 +360,10 @@
     skip = ms > 28;
     const lm = res && res.landmarks && res.landmarks[0];
     if (lm) {
+      // how fast the fingertip is crossing the picture, so the blade can be carried forward between camera pictures
+      const ds = (now - handRaw.t) / 1000;
+      if (handRaw.ok && ds > 0 && ds < 0.2) { handRaw.vu += ((lm[8].x - handRaw.u) / ds - handRaw.vu) * 0.5; handRaw.vv += ((lm[8].y - handRaw.v) / ds - handRaw.vv) * 0.5; }
+      else handRaw.vu = handRaw.vv = 0;
       handRaw.ok = true; handRaw.u = lm[8].x; handRaw.v = lm[8].y; handRaw.t = now;
       handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
     } else handRaw.ok = false;
@@ -398,7 +424,8 @@
     const was = blade.ok;
     if (S.mode === 'hand') {
       if (handRaw.ok) {
-        videoDir(handRaw.u, handRaw.v, tmpA);
+        handNow(now, hn);
+        videoDir(hn[0], hn[1], tmpA);
         // the learned aim correction, in degrees across and up
         const ax = Math.atan2(tmpA.x, -tmpA.z) / D - bias.x, ay = Math.atan2(tmpA.y, -tmpA.z) / D - bias.y;
         tmpA.set(Math.tan(ax * D), Math.tan(ay * D), -1).normalize().applyQuaternion(camera.quaternion);
@@ -496,7 +523,7 @@
   function startRound() {
     S.fruits.forEach((f) => scene.remove(f.m)); S.fruits = [];
     S.m = { thrown: 0, sliced: 0, swipes: 0, cuts: 0, inSwipe: false, cutThisSwipe: 0, swipeT: 0, peakV: 0, vSum: 0, vN: 0, handFrames: 0, lostFrames: 0, aimN: 0, aimDx: 0, aimDy: 0, aimSq: 0, a11: 0, a12: 0, a22: 0, missN: 0, missSum: 0 };
-    S.score = 0; S.dwell = 0; detN = 0; detMs = 0;
+    S.score = 0; S.dwell = 0; detN = 0; detMs = 0; perf.n = 0; perf.sum = 0;
     panel.visible = false; hud.visible = true;
     recentre = true;
     S.phase = 'count'; S.count = performance.now();
@@ -515,7 +542,7 @@
       acc: m.swipes ? m.cuts / m.swipes : 0, peakV: m.peakV, meanV: m.vN ? m.vSum / m.vN : 0,
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, fps: frames / dur, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
       aim: { n: m.aimN, dx: ex, dy: ey, rms: m.aimN ? Math.sqrt(m.aimSq / m.aimN) : 0, missNear: m.missN ? m.missSum / m.missN : null },
-      bias: { x: bias.x, y: bias.y }, screen: [innerWidth, innerHeight], cam: S.cam || '',
+      bias: { x: bias.x, y: bias.y }, screen: [innerWidth, innerHeight], cam: S.cam || '', fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
     };
     const rows = store.get('fruitVRRounds', []);
     rows.push(row);
@@ -556,6 +583,7 @@
     requestAnimationFrame(frame);
     const gap = now - last, real = Math.min(0.3, gap / 1000 || 0.016), dt = Math.min(0.05, real);
     last = now;
+    pace(now, gap);
     applyHead();
     if (S.mode === 'hand') trackHand(now);
     updateBlade(now, dt);
@@ -666,7 +694,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, or place the hand in the camera picture
-  window.__fruitVR = { S, blade, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v) { if (u == null) handRaw.ok = false; else { handRaw.ok = true; handRaw.u = u; handRaw.v = v; } }, setMode(m) { S.mode = m; }, pic, handDir(u, v) { const d = videoDir(u, v, new THREE.Vector3()); return [d.x, d.y, d.z]; } };
+  window.__fruitVR = { S, blade, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v) { if (u == null) handRaw.ok = false; else { handRaw.ok = true; handRaw.u = u; handRaw.v = v; handRaw.vu = handRaw.vv = 0; } }, perf, handNow(u, v, vu, vv, agoMs) { Object.assign(handRaw, { u, v, vu, vv, t: performance.now() - agoMs }); return handNow(performance.now(), [0, 0]); }, setMode(m) { S.mode = m; }, pic, handDir(u, v) { const d = videoDir(u, v, new THREE.Vector3()); return [d.x, d.y, d.z]; } };
 })();
 </script>
 </body>
