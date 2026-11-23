@@ -95,3 +95,15 @@ iPhone browsers have no WebXR, so the page does its own stereo view and head tra
 
 The view follows the phone, not the page: if the phone's rotation lock keeps the page upright, the motion sensors show which way the phone was turned and the split view (and the camera picture) is drawn sideways to match. The round clock waits while the phone is upright. **Widest camera (0.5×)** opens the ultra-wide rear camera where the phone has one.
 
+## Fruit VR iPhone app (`ios/`), unofficial
+
+A small app that shows the Fruit Slicer VR page edge to edge in landscape: no browser bars, the screen stays awake, and camera and motion are allowed for the game's own site without prompts. It is not in the App Store; it is built unsigned and you install it on your own phone by sideloading.
+
+1. On GitHub open **Actions → Build the Fruit VR iPhone app**, pick the latest run with a green tick, and download the **FruitVR-unsigned-ipa** artifact (you must be signed in). Unzip it once to get `FruitVR.ipa`.
+2. Install `FruitVR.ipa` with a sideloading tool such as AltStore, SideStore or Sideloadly, which signs it with your own Apple ID.
+3. On the phone, turn on **Settings → Privacy & Security → Developer Mode** if asked, and trust your Apple ID under **Settings → General → VPN & Device Management**.
+
+With a free Apple ID the app stops opening after 7 days until it is refreshed with the same tool. The app loads the game from this site, so it needs a connection and always runs the current version of the page. A two-finger double tap reloads the page.
+
+The app is built by `.github/workflows/ios.yml` from `ios/project.yml` (XcodeGen) and `ios/Sources/App.swift`.
+
